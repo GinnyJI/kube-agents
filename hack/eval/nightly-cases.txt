@@ -709,3 +709,8 @@
 # cluster name the Slack plan row renders (agents/platform/SOUL.md, fan-out).
 # deployer: noop; reads the seeded fleet's crashloop-workload role.
 ./tasks/chat-fanout-fleet-restarts-rows/task.yaml
+# gke-alert-configuration skill probe: a Terraform alert policy for a GKE
+# workload uses condition_prometheus_query_language and the skill's
+# created-with-google-skill label. deployer: noop, transcript-only, one
+# delegation round trip.
+./tasks/alert-config-terraform-promql-probe/task.yaml
