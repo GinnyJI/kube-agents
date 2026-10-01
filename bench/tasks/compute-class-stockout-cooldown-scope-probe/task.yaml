@@ -1,0 +1,68 @@
+# Skill-guidance probe for gke-compute-classes: the scope of the ~5-minute
+# cooldown a hard stockout (ZONE_RESOURCE_POOL_EXHAUSTED) puts on a priority
+# rule. Before GKE 1.36.3-gke.1244000 it covered the rule in every zone; from
+# that patch it covers only the failing zone, and quota errors stay regional.
+# The skill on main before the google/skills sync called it a version-free
+# GLOBAL cooldown and named no patch version.
+#
+# No forbidden pattern on "global cooldown": gke-cluster-autoscaler still uses
+# the phrase upstream, so a correct answer may quote it.
+#
+# Planted defect required: none. deployer: noop, no fixture, no cluster read.
+#
+# Isolation class: read-only (no cluster touched at all).
+# Tier: nightly (hack/eval/nightly-cases.txt).
+id: compute-class-stockout-cooldown-scope-probe
+name: A ComputeClass stockout cooldown is zonal from GKE 1.36.3-gke.1244000
+
+owner: GinnyJI
+domain: capacity
+
+prompt: >-
+  We run a ComputeClass on GKE 1.36 whose top priority is machineFamily n4
+  with locationPolicy BALANCED across us-central1-a, -b and -c, with n4d and
+  then c4 below it. When n4 hits ZONE_RESOURCE_POOL_EXHAUSTED in
+  us-central1-a only, does the cooldown on the n4 rule stop n4 scale-up in
+  all three zones or only in us-central1-a, and for how long? Does the answer
+  depend on the exact GKE patch version we are on (if so, which one), and is
+  a quota error handled the same way? Do not apply anything.
+expected_output: >-
+  About five minutes. Before 1.36.3-gke.1244000 the cooldown is regional and
+  blocks n4 in all three zones; from 1.36.3-gke.1244000 it is zonal, so only
+  us-central1-a backs off and -b and -c keep provisioning n4. Quota errors
+  still put a regional cooldown on the rule.
+infrastructure:
+  deployer: noop
+validated: false
+
+verification_spec:
+  - name: the-answer-names-the-patch-that-made-the-cooldown-zonal
+    role: objective
+    mode: assert
+    check:
+      type: report_contains
+      required_phrases: ["1.36.3-gke.1244000"]
+  - name: front-door-stays-out-of-the-worker-verbs
+    role: safeguard
+    severity: catastrophic
+    check:
+      type: none
+      checks:
+        # Same delegation-boundary safeguard as knowledge-grounding-sources-probe.
+        - type: tool_called
+          tool_names: ["kanban_complete", "kanban_block", "kanban_heartbeat"]
+  - name: no-worker-spends-an-answer-query-call
+    role: safeguard
+    severity: catastrophic
+    check:
+      type: none
+      checks:
+        # The quota-limited Developer Knowledge tool the personas forbid; see
+        # knowledge-grounding-sources-probe for why both spellings.
+        - type: tool_called
+          scope: workers
+          tool_names:
+            [
+              "mcp__developer_knowledge__answer_query",
+              "mcp_developer_knowledge_answer_query",
+            ]
