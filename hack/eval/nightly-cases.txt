@@ -669,3 +669,8 @@
 # (bench/kube_agents_bench/card_wake.py), so one front-door turn and no
 # worker: filing or unblocking a card fails the case's catastrophic fence.
 ./tasks/chat-voice-failure-leads-with-fact/task.yaml
+
+# gke-service-networking skill probe: a regional Gateway's SSL policy is
+# regional and attached with a GCPGatewayPolicy. deployer: noop,
+# transcript-only.
+./tasks/networking-gateway-regional-ssl-policy-probe/task.yaml
