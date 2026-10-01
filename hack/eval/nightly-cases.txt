@@ -719,3 +719,8 @@
 # state, not on databaseEncryption.state, the requested one.
 # deployer: noop, transcript-only.
 ./tasks/platform-security-secrets-encryption-currentstate-probe/task.yaml
+
+# gke-upgrades skill probe: a node-pool upgrade runbook uses
+# clusters upgrade --node-pool, and the no_upgrades limits name the rolling
+# 92-day window. deployer: noop, transcript-only, one delegation round trip.
+./tasks/upgrades-freeze-runbook-probe/task.yaml
