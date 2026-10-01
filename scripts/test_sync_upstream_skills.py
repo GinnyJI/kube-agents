@@ -23,6 +23,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 # The module file name has hyphens, so load it by path rather than a plain import.
 _SPEC = importlib.util.spec_from_file_location(
@@ -311,10 +312,16 @@ class ApplySubstitutionsTest(unittest.TestCase):
         # A replacement containing its own target is still present after being applied, so the
         # both-present guard above would abort every run after the first. The registries have
         # no such pair; this fails if one is added.
+        # Pairs of one skill are applied in order to the same text, so the same holds across
+        # them: a replacement that contains another pair's target or replacement changes that
+        # pair's verdict once applied.
         for skill_name, pairs in sync.SKILL_SUBSTITUTIONS.items():
             for target, replacement in pairs:
-                self.assertNotIn(target, replacement, skill_name)
-                self.assertNotIn(replacement, target, skill_name)
+                for other_target, other_replacement in pairs:
+                    self.assertNotIn(other_target, replacement, skill_name)
+                    self.assertNotIn(other_replacement, target, skill_name)
+                    if (other_target, other_replacement) != (target, replacement):
+                        self.assertNotIn(other_replacement, replacement, skill_name)
 
     def test_skill_without_substitutions_is_untouched(self):
         # The guard must not turn "nothing configured" into a failure.
@@ -459,6 +466,21 @@ class VerifyLocalCorrectionsTest(unittest.TestCase):
         with self.assertRaises(sync.UpstreamDriftError) as caught:
             sync.verify_local_corrections(str(root), sorted(skills))
         self.assertIn("gke-basics", str(caught.exception))
+        self.assertIn("occurs 2 times", str(caught.exception))
+
+    def test_earlier_pair_rewriting_a_later_target_is_reported(self):
+        # apply_substitutions classifies each pair against content the earlier pairs have
+        # already rewritten. A pre-flight that classified every pair against the pristine clone
+        # would accept this registry and let the backstop raise after the tree is half-written.
+        skill = "gke-two-pair"
+        pairs = [("first old", "first new, then second old"), ("second old", "second new")]
+        root = self._upstream({skill: "first old\n\nsecond old\n"})
+        with mock.patch.dict(sync.SKILL_SUBSTITUTIONS, {skill: pairs}, clear=True), mock.patch.dict(
+            sync.SKILL_FOOTERS, {}, clear=True
+        ):
+            with self.assertRaises(sync.UpstreamDriftError) as caught:
+                sync.verify_local_corrections(str(root), [skill])
+        self.assertIn(skill, str(caught.exception))
         self.assertIn("occurs 2 times", str(caught.exception))
 
     def test_every_drift_is_reported_at_once(self):

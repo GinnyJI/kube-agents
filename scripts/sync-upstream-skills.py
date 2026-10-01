@@ -431,7 +431,8 @@ def classify_substitution(content, target, replacement):
     """Decide whether a registered pair still applies to content.
 
     The pre-flight reads this against the clone and the backstop reads it against the copy made
-    from it, so the one place the rule is written is the only place it can be got wrong. Two
+    from it, both through substitute(), so the one place the rule is written is the only place
+    it can be got wrong. Two
     earlier versions of this file stated it twice and the two statements disagreed, which is how
     an uncorrected passage shipped under exit 0.
 
@@ -470,6 +471,24 @@ def classify_substitution(content, target, replacement):
     )
 
 
+def substitute(content, pairs):
+    """Apply a skill's pairs in order, each classified against the text the earlier ones left.
+
+    Returns (content, problems): the rewritten text, and one (target, reason) per pair
+    classify_substitution calls undecidable, which is left unapplied. The pre-flight and
+    apply_substitutions both call this, so a later pair whose verdict an earlier pair's
+    replacement changes is judged the same way by each.
+    """
+    problems = []
+    for target, replacement in pairs:
+        verdict, reason = classify_substitution(content, target, replacement)
+        if verdict == SUBSTITUTION_UNDECIDABLE:
+            problems.append((target, reason))
+        elif verdict == SUBSTITUTION_APPLY:
+            content = content.replace(target, replacement, SUBSTITUTION_COUNT)
+    return content, problems
+
+
 def verify_local_corrections(upstream_skills_dir, discovered_skills):
     """Check every registered correction against the clone before anything is written.
 
@@ -504,13 +523,12 @@ def verify_local_corrections(upstream_skills_dir, discovered_skills):
                 continue
             with open(skill_md, "r", encoding=UTF_8_ENCODING) as f:
                 content = f.read()
-            for target, replacement in registry[skill_name]:
-                verdict, reason = classify_substitution(content, target, replacement)
-                if verdict == SUBSTITUTION_UNDECIDABLE:
-                    problems.append(
-                        f"{registry_name}[{skill_name!r}]: {reason} "
-                        f"Target begins: {target.splitlines()[0]!r}"
-                    )
+            _, undecidable = substitute(content, registry[skill_name])
+            for target, reason in undecidable:
+                problems.append(
+                    f"{registry_name}[{skill_name!r}]: {reason} "
+                    f"Target begins: {target.splitlines()[0]!r}"
+                )
 
     if problems:
         raise UpstreamDriftError("\n".join(f"  - {p}" for p in problems))
@@ -527,8 +545,8 @@ def apply_substitutions(dest_path, skill_name):
     applied, or adopted upstream, and is skipped. Returns True if at least one substitution was
     applied, else False.
 
-    classify_substitution decides which pairs apply; this raises LocalCorrectionLost on the ones
-    it calls undecidable. verify_local_corrections has already rejected those against the clone,
+    substitute() decides which pairs apply; this raises LocalCorrectionLost on the first it calls
+    undecidable. verify_local_corrections has already rejected those against the clone,
     so reaching one here means the copy and the clone disagree; the raise keeps the defect out
     of the tree.
     """
@@ -545,24 +563,19 @@ def apply_substitutions(dest_path, skill_name):
     with open(skill_md, "r", encoding=UTF_8_ENCODING) as f:
         content = f.read()
 
-    modified = False
-    for target, replacement in substitutions:
-        verdict, reason = classify_substitution(content, target, replacement)
-        if verdict == SUBSTITUTION_SKIP:
-            continue
-        if verdict == SUBSTITUTION_UNDECIDABLE:
-            raise LocalCorrectionLost(
-                f"{skill_name}/{SKILL_MD_FILENAME}: {reason} The entry is in "
-                f"SKILL_SUBSTITUTIONS. Target begins: {target.splitlines()[0]!r}"
-            )
-        content = content.replace(target, replacement, SUBSTITUTION_COUNT)
-        modified = True
+    substituted, problems = substitute(content, substitutions)
+    if problems:
+        target, reason = problems[0]
+        raise LocalCorrectionLost(
+            f"{skill_name}/{SKILL_MD_FILENAME}: {reason} The entry is in "
+            f"SKILL_SUBSTITUTIONS. Target begins: {target.splitlines()[0]!r}"
+        )
 
-    if modified:
-        with open(skill_md, "w", encoding=UTF_8_ENCODING) as f:
-            f.write(content)
-
-    return modified
+    if substituted == content:
+        return False
+    with open(skill_md, "w", encoding=UTF_8_ENCODING) as f:
+        f.write(substituted)
+    return True
 
 
 def inject_footer(dest_path, skill_name):
