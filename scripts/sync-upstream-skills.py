@@ -176,6 +176,28 @@ GKE_BASICS_NEW_CREDENTIALS_SNIPPET = """4. **Cluster Credentials:**
      gcloud container clusters get-credentials "$CLUSTER" --location="$LOCATION" --project="$PROJECT" --quiet
      ```"""
 
+# gke-basics' Reference Directory upstream describes cli-reference.md and mcp-usage.md as covering
+# the cluster-operation tools alone. The cli-reference.md correction in SKILL_FILE_SUBSTITUTIONS
+# adds the knowledge-lookup hierarchy, and mcp-usage.md documents the Developer Knowledge server,
+# so the two entries name what the agent finds when it opens them.
+GKE_BASICS_OLD_CLI_REFERENCE_ENTRY_SNIPPET = (
+    "Tool preference hierarchy (MCP vs gcloud vs kubectl)"
+)
+
+GKE_BASICS_NEW_CLI_REFERENCE_ENTRY_SNIPPET = (
+    "Tool preference hierarchies (Knowledge lookups vs Cluster Operations)"
+)
+
+GKE_BASICS_OLD_MCP_USAGE_ENTRY_SNIPPET = (
+    "Connecting to and using the 23 structured GKE MCP tools for cluster management, K8s "
+    "resources, and diagnostics."
+)
+
+GKE_BASICS_NEW_MCP_USAGE_ENTRY_SNIPPET = (
+    "Connecting to and using the GKE MCP and Developer Knowledge MCP tools for cluster "
+    "management, K8s resources, and authoritative documentation."
+)
+
 # gke-workload-troubleshooting's Step 5 upstream ends every crashloop walk by opening a pull
 # request, unconditionally ("do not wait for human merge"). This repository's platform persona
 # opens one only when the request asked for the fix (agents/platform/SOUL.md §3, item 3: a request to
@@ -255,6 +277,14 @@ SKILL_SUBSTITUTIONS = {
             GKE_BASICS_OLD_CREDENTIALS_SNIPPET,
             GKE_BASICS_NEW_CREDENTIALS_SNIPPET,
         ),
+        (
+            GKE_BASICS_OLD_CLI_REFERENCE_ENTRY_SNIPPET,
+            GKE_BASICS_NEW_CLI_REFERENCE_ENTRY_SNIPPET,
+        ),
+        (
+            GKE_BASICS_OLD_MCP_USAGE_ENTRY_SNIPPET,
+            GKE_BASICS_NEW_MCP_USAGE_ENTRY_SNIPPET,
+        ),
     ],
     "gke-workload-troubleshooting": [
         (
@@ -262,6 +292,61 @@ SKILL_SUBSTITUTIONS = {
             GKE_WORKLOAD_TROUBLESHOOTING_NEW_STEP5_SUBMIT_SNIPPET,
         ),
     ],
+}
+
+# gke-basics' tool-preference reference upstream ranks only the interfaces for live cluster
+# operations, so a GKE fact the agent needs (a field, a version lifecycle, a quota) falls through
+# to web search. This repository ranks Developer Knowledge first for those lookups and web search
+# as the fallback; the replacement adds that hierarchy above upstream's, which it renames.
+GKE_BASICS_CLI_REFERENCE_OLD_TOOL_PREFERENCE_SNIPPET = """## Tool Preference
+
+Default preference order:
+"""
+
+GKE_BASICS_CLI_REFERENCE_NEW_TOOL_PREFERENCE_SNIPPET = """## Tool Preference
+
+Tool usage follows two distinct, domain-specific preference hierarchies:
+
+### 1. Knowledge & Documentation Lookups (GKE Facts, Schemas, Best Practices)
+
+Default preference order:
+
+```
+1. Developer Knowledge MCP  (preferred — authoritative, curated first-party documentation)
+2. Web Search               (fallback — third-party tooling, open-source CVEs, or DK cache miss)
+```
+
+| Interface                                               | When to Use                                                                                                           | Examples                                                                                                      |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| **Developer Knowledge MCP** (`mcp-developer_knowledge`) | Default for all GKE/GCP facts, API schemas, version lifecycles, and configuration semantics.                          | GKE Autopilot constraints, Ingress/Gateway API spec fields, release version deprecations, quota requirements. |
+| **Web Search** (`web_search`)                           | Third-party software documentation, non-Google helm charts, community error discussions, or when DK returns no match. | Investigating an open-source operator error, third-party CNI details, or external blog posts.                 |
+
+### 2. Live Cluster Operations & State Management
+
+Default preference order:
+"""
+
+GKE_BASICS_CLI_REFERENCE_OLD_WHEN_TO_USE_SNIPPET = "### When to use each\n"
+
+GKE_BASICS_CLI_REFERENCE_NEW_WHEN_TO_USE_SNIPPET = "### When to use each (Cluster Operations)\n"
+
+# The same corrections for a file in a skill other than its SKILL.md, keyed by skill and then by
+# the file's path inside the skill directory. A skill's reference files are wiped and re-copied
+# with the rest of it, so an edit made to one by hand lasts until the next sync unless it is
+# registered here. Every rule SKILL_SUBSTITUTIONS follows applies.
+SKILL_FILE_SUBSTITUTIONS = {
+    "gke-basics": {
+        os.path.join("references", "cli-reference.md"): [
+            (
+                GKE_BASICS_CLI_REFERENCE_OLD_TOOL_PREFERENCE_SNIPPET,
+                GKE_BASICS_CLI_REFERENCE_NEW_TOOL_PREFERENCE_SNIPPET,
+            ),
+            (
+                GKE_BASICS_CLI_REFERENCE_OLD_WHEN_TO_USE_SNIPPET,
+                GKE_BASICS_CLI_REFERENCE_NEW_WHEN_TO_USE_SNIPPET,
+            ),
+        ],
+    },
 }
 
 # Marker that identifies our auto-injected footer, so injection is idempotent and
@@ -529,6 +614,20 @@ def substitute(content, pairs):
     return content, problems
 
 
+def substituted_files(skill_name):
+    """Every file of a skill that has pairs registered, as (path inside the skill, pairs).
+
+    SKILL.md comes from SKILL_SUBSTITUTIONS and the rest from SKILL_FILE_SUBSTITUTIONS; the
+    pre-flight and apply_substitutions both read this, so neither can cover a file the other
+    skips.
+    """
+    files = []
+    if skill_name in SKILL_SUBSTITUTIONS:
+        files.append((SKILL_MD_FILENAME, SKILL_SUBSTITUTIONS[skill_name]))
+    files.extend(sorted(SKILL_FILE_SUBSTITUTIONS.get(skill_name, {}).items()))
+    return files
+
+
 def verify_local_corrections(upstream_skills_dir, discovered_skills):
     """Check every registered correction against the clone before anything is written.
 
@@ -544,6 +643,7 @@ def verify_local_corrections(upstream_skills_dir, discovered_skills):
 
     for registry_name, registry in (
         ("SKILL_SUBSTITUTIONS", SKILL_SUBSTITUTIONS),
+        ("SKILL_FILE_SUBSTITUTIONS", SKILL_FILE_SUBSTITUTIONS),
         ("SKILL_FOOTERS", SKILL_FOOTERS),
     ):
         for skill_name in sorted(registry):
@@ -553,29 +653,34 @@ def verify_local_corrections(upstream_skills_dir, discovered_skills):
                     f"(renamed or removed). Move the entry to the new name, or drop it."
                 )
                 continue
-            skill_md = os.path.join(upstream_skills_dir, skill_name, SKILL_MD_FILENAME)
-            if not os.path.isfile(skill_md):
-                problems.append(
-                    f"{registry_name}[{skill_name!r}]: upstream skill has no {SKILL_MD_FILENAME}."
-                )
-                continue
-            if registry_name != "SKILL_SUBSTITUTIONS":
-                continue
-            with open(skill_md, "r", encoding=UTF_8_ENCODING) as f:
-                content = f.read()
-            _, undecidable = substitute(content, registry[skill_name])
-            for target, reason in undecidable:
-                problems.append(
-                    f"{registry_name}[{skill_name!r}]: {reason} "
-                    f"Target begins: {target.splitlines()[0]!r}"
-                )
+            if registry_name == "SKILL_FILE_SUBSTITUTIONS":
+                files = sorted(registry[skill_name].items())
+            else:
+                files = [(SKILL_MD_FILENAME, registry[skill_name])]
+            for relpath, pairs in files:
+                path = os.path.join(upstream_skills_dir, skill_name, relpath)
+                if not os.path.isfile(path):
+                    problems.append(
+                        f"{registry_name}[{skill_name!r}]: upstream skill has no {relpath}."
+                    )
+                    continue
+                if registry_name == "SKILL_FOOTERS":
+                    continue
+                with open(path, "r", encoding=UTF_8_ENCODING) as f:
+                    content = f.read()
+                _, undecidable = substitute(content, pairs)
+                for target, reason in undecidable:
+                    problems.append(
+                        f"{registry_name}[{skill_name!r}] {relpath}: {reason} "
+                        f"Target begins: {target.splitlines()[0]!r}"
+                    )
 
     if problems:
         raise UpstreamDriftError("\n".join(f"  - {p}" for p in problems))
 
 
 def apply_substitutions(dest_path, skill_name):
-    """Apply in-place string substitutions to a freshly-synced skill's SKILL.md.
+    """Apply in-place string substitutions to a freshly-synced skill's registered files.
 
     Used when an upstream defect must be corrected in-place (such as a remediation
     sequence where an appended footer would still leave the broken command in the
@@ -590,32 +695,33 @@ def apply_substitutions(dest_path, skill_name):
     so reaching one here means the copy and the clone disagree; the raise keeps the defect out
     of the tree.
     """
-    substitutions = SKILL_SUBSTITUTIONS.get(skill_name)
-    if not substitutions:
-        return False
+    applied = False
+    for relpath, substitutions in substituted_files(skill_name):
+        path = os.path.join(dest_path, relpath)
+        if not os.path.isfile(path):
+            raise LocalCorrectionLost(
+                f"{skill_name} has substitutions configured but {path} does not exist."
+            )
 
-    skill_md = os.path.join(dest_path, SKILL_MD_FILENAME)
-    if not os.path.isfile(skill_md):
-        raise LocalCorrectionLost(
-            f"{skill_name} has substitutions configured but {skill_md} does not exist."
-        )
+        with open(path, "r", encoding=UTF_8_ENCODING) as f:
+            content = f.read()
 
-    with open(skill_md, "r", encoding=UTF_8_ENCODING) as f:
-        content = f.read()
+        substituted, problems = substitute(content, substitutions)
+        if problems:
+            target, reason = problems[0]
+            registry_name = (
+                "SKILL_SUBSTITUTIONS" if relpath == SKILL_MD_FILENAME else "SKILL_FILE_SUBSTITUTIONS"
+            )
+            raise LocalCorrectionLost(
+                f"{skill_name}/{relpath}: {reason} The entry is in "
+                f"{registry_name}. Target begins: {target.splitlines()[0]!r}"
+            )
 
-    substituted, problems = substitute(content, substitutions)
-    if problems:
-        target, reason = problems[0]
-        raise LocalCorrectionLost(
-            f"{skill_name}/{SKILL_MD_FILENAME}: {reason} The entry is in "
-            f"SKILL_SUBSTITUTIONS. Target begins: {target.splitlines()[0]!r}"
-        )
-
-    if substituted == content:
-        return False
-    with open(skill_md, "w", encoding=UTF_8_ENCODING) as f:
-        f.write(substituted)
-    return True
+        if substituted != content:
+            with open(path, "w", encoding=UTF_8_ENCODING) as f:
+                f.write(substituted)
+            applied = True
+    return applied
 
 
 def inject_footer(dest_path, skill_name):
@@ -734,7 +840,7 @@ def main():
 
                     # Apply in-place substitutions to correct upstream defects.
                     if apply_substitutions(dest_path, skill_name):
-                        print(f"  Applied substitutions to {skill_name}/{SKILL_MD_FILENAME}")
+                        print(f"  Applied substitutions to {skill_name}")
 
                     # Re-inject the Cluster Agent coupling footer (wiped by the copy above).
                     if inject_footer(dest_path, skill_name):

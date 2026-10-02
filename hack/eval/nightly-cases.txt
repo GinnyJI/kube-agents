@@ -709,3 +709,8 @@
 # cluster name the Slack plan row renders (agents/platform/SOUL.md, fan-out).
 # deployer: noop; reads the seeded fleet's crashloop-workload role.
 ./tasks/chat-fanout-fleet-restarts-rows/task.yaml
+# gke-workload-identity skill probe: a signed-URL "Invalid form of account ID"
+# error under GSA impersonation is fixed with the
+# iam.gke.io/return-principal-id-as-email KSA annotation. deployer: noop,
+# transcript-only.
+./tasks/workload-identity-signed-url-probe/task.yaml
