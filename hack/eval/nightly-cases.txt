@@ -709,3 +709,7 @@
 # cluster name the Slack plan row renders (agents/platform/SOUL.md, fan-out).
 # deployer: noop; reads the seeded fleet's crashloop-workload role.
 ./tasks/chat-fanout-fleet-restarts-rows/task.yaml
+# gke-backup-dr skill probe: a backup plan driven by a target RPO uses
+# --target-rpo-minutes instead of a cron schedule. deployer: noop,
+# transcript-only.
+./tasks/backup-dr-smart-scheduling-probe/task.yaml

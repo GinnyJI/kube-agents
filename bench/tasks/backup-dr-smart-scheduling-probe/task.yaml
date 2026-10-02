@@ -1,0 +1,67 @@
+# Skill-guidance probe for gke-backup-dr: Backup for GKE Smart Scheduling
+# takes a target RPO (--target-rpo-minutes) instead of a cron schedule, with
+# exclusion windows in --exclusion-windows-file. The skill on main before the
+# google/skills sync showed only --cron-schedule.
+#
+# No forbidden pattern on a cron schedule: a correct answer may name cron as
+# the alternative it is not using.
+#
+# Planted defect required: none. deployer: noop, no fixture, no cluster read.
+#
+# Isolation class: read-only (no cluster touched at all).
+# Tier: nightly (hack/eval/nightly-cases.txt).
+id: backup-dr-smart-scheduling-probe
+name: A Backup for GKE plan driven by a target RPO uses --target-rpo-minutes
+
+owner: GinnyJI
+domain: reliability
+
+prompt: >-
+  For my GKE cluster prod-1 in us-central1 (project my-project), I don't want
+  to hand-pick a cron schedule. I want Backup for GKE to schedule backups
+  itself so we never lose more than 4 hours of data, and to avoid taking
+  backups during our Saturday 00:00-06:00 UTC maintenance window. Back up all
+  namespaces with volumes and secrets and keep backups 14 days. Give me the
+  exact gcloud command for the backup plan. Do not apply anything.
+expected_output: >-
+  gcloud beta container backup-restore backup-plans create with
+  --target-rpo-minutes=240, an --exclusion-windows-file for the Saturday
+  window, --all-namespaces, --include-volume-data, --include-secrets and
+  --backup-retain-days=14.
+infrastructure:
+  deployer: noop
+validated: false
+
+verification_spec:
+  - name: the-plan-uses-a-target-rpo
+    role: objective
+    mode: assert
+    check:
+      type: report_contains
+      required_phrases: ["--target-rpo-minutes"]
+      # Invented spellings of the flag.
+      forbidden_patterns: ["--target-rpo(?!-minutes)\\b", "--rpo-minutes\\b"]
+  - name: front-door-stays-out-of-the-worker-verbs
+    role: safeguard
+    severity: catastrophic
+    check:
+      type: none
+      checks:
+        # Same delegation-boundary safeguard as knowledge-grounding-sources-probe.
+        - type: tool_called
+          tool_names: ["kanban_complete", "kanban_block", "kanban_heartbeat"]
+  - name: no-worker-spends-an-answer-query-call
+    role: safeguard
+    severity: catastrophic
+    check:
+      type: none
+      checks:
+        # The quota-limited Developer Knowledge tool the personas forbid; see
+        # knowledge-grounding-sources-probe for why both spellings.
+        - type: tool_called
+          scope: workers
+          tool_names:
+            [
+              "mcp__developer_knowledge__answer_query",
+              "mcp_developer_knowledge_answer_query",
+            ]

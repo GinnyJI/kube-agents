@@ -343,6 +343,16 @@ class ApplySubstitutionsTest(unittest.TestCase):
                     if (other_target, other_replacement) != (target, replacement):
                         self.assertNotIn(other_replacement, replacement, skill_name)
 
+    def test_repo_backup_dr_skill_keeps_the_golden_path_heading(self):
+        # The Golden Path heading on a line of its own, so it renders.
+        skill_md = (
+            Path(__file__).resolve().parent.parent / "agents" / "platform" / "skills" / "gke-backup-dr" / "SKILL.md"
+        )
+        content = skill_md.read_text(encoding="utf-8")
+        for target, replacement in sync.SKILL_SUBSTITUTIONS["gke-backup-dr"]:
+            self.assertNotIn(target, content)
+            self.assertEqual(content.count(replacement), 1, replacement)
+
     def test_skill_without_substitutions_is_untouched(self):
         # The guard must not turn "nothing configured" into a failure.
         d = self._skill_dir()
