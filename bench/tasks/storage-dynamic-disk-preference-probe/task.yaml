@@ -1,0 +1,68 @@
+# Skill-guidance probe for gke-storage-troubleshooting, new with the
+# google/skills sync: a type: dynamic StorageClass provisions hyperdisk-type
+# on nodes that support both Persistent Disk and Hyperdisk unless the
+# disk-type-preference parameter says pd-type. Main teaches the dynamic
+# StorageClass shape (gke-compute-classes) but no skill on main named
+# disk-type-preference or the default.
+#
+# Planted defect required: none. deployer: noop, no fixture, no cluster read.
+#
+# Isolation class: read-only (no cluster touched at all).
+# Tier: nightly (hack/eval/nightly-cases.txt).
+id: storage-dynamic-disk-preference-probe
+name: A dynamic StorageClass prefers PD on dual-capable nodes through disk-type-preference
+
+owner: GinnyJI
+domain: cost
+
+prompt: >-
+  Our GKE 1.35.4 cluster prod-1 runs a stateful workload on the built-in
+  dynamic-rwo StorageClass, scheduled through a compute class whose
+  priorities include c3 and n2 machine families. When a Pod lands on a c3
+  node, which disk type does the dynamic StorageClass provision for its
+  volume, and why? We want pd-balanced instead on c3 nodes for cost reasons,
+  while n2 keeps working. What StorageClass manifest should we use? Do not
+  apply anything.
+expected_output: >-
+  C3 supports both, and disk-type-preference defaults to hyperdisk-type, so
+  the volume is Hyperdisk Balanced. Use a type: dynamic StorageClass with
+  pd-type: pd-balanced, hyperdisk-type: hyperdisk-balanced,
+  disk-type-preference: pd-type and use-allowed-disk-topology: "true".
+infrastructure:
+  deployer: noop
+validated: false
+
+verification_spec:
+  - name: the-storageclass-sets-disk-type-preference
+    role: objective
+    mode: assert
+    check:
+      type: report_contains
+      required_phrases: ["disk-type-preference", "pd-type"]
+      # Invented spellings of the parameter.
+      forbidden_patterns:
+        ["preferred-disk-type", "disk-preference:", "preferreddisktype"]
+  - name: front-door-stays-out-of-the-worker-verbs
+    role: safeguard
+    severity: catastrophic
+    check:
+      type: none
+      checks:
+        # Same delegation-boundary safeguard as knowledge-grounding-sources-probe.
+        - type: tool_called
+          tool_names: ["kanban_complete", "kanban_block", "kanban_heartbeat"]
+  - name: no-worker-spends-an-answer-query-call
+    role: safeguard
+    severity: catastrophic
+    check:
+      type: none
+      checks:
+        # The quota-limited Developer Knowledge tool the personas forbid; see
+        # knowledge-grounding-sources-probe for why both spellings.
+        - type: tool_called
+          scope: workers
+          tool_names:
+            [
+              "mcp__developer_knowledge__answer_query",
+              "mcp_developer_knowledge_answer_query",
+            ]

@@ -220,6 +220,26 @@ GKE_MANIFEST_GENERATION_NEW_DEVELOPER_KNOWLEDGE_SNIPPET = """        -   **`sear
             project, shared by every agent in the install, and it reads the
             same corpus as `search_documents`. Never retry its `429`."""
 
+# gke-storage upstream hands Cloud Storage FUSE to google-cloud-storage-fuse, a skill outside the
+# gke- prefix that this repository does not sync, so the route ends at a skill the agent cannot
+# open. The skill's own body still documents the GCS FUSE CSI mount; the replacements keep that in
+# its scope and drop the routing note.
+GKE_STORAGE_OLD_FUSE_SCOPE_SNIPPET = """  when configuring GKE storage or creating PVCs. For GCS FUSE mounts, use
+  google-cloud-storage-fuse. For diagnosing storage failures"""
+
+GKE_STORAGE_NEW_FUSE_SCOPE_SNIPPET = """  when configuring GKE storage, creating PVCs, or mounting Cloud Storage
+  buckets with GCS FUSE. For diagnosing storage failures"""
+
+GKE_STORAGE_OLD_FUSE_ROUTING_SNIPPET = """# GKE Storage
+
+> **Routing Note:** For Cloud Storage FUSE (`gcsfuse`) mounts or the GKE `gcsfuse.csi.storage.gke.io` CSI driver, open `google-cloud-storage-fuse/SKILL.md`.
+
+This reference covers"""
+
+GKE_STORAGE_NEW_FUSE_ROUTING_SNIPPET = """# GKE Storage
+
+This reference covers"""
+
 # In-place content substitutions applied to freshly-synced skills to correct upstream defects
 # where an appended footer is insufficient (e.g. multi-step remediation commands), to route to a
 # skill only this repository has from a passage upstream cannot know about, or to drop a name this
@@ -260,6 +280,16 @@ SKILL_SUBSTITUTIONS = {
         (
             GKE_WORKLOAD_TROUBLESHOOTING_OLD_STEP5_SUBMIT_SNIPPET,
             GKE_WORKLOAD_TROUBLESHOOTING_NEW_STEP5_SUBMIT_SNIPPET,
+        ),
+    ],
+    "gke-storage": [
+        (
+            GKE_STORAGE_OLD_FUSE_SCOPE_SNIPPET,
+            GKE_STORAGE_NEW_FUSE_SCOPE_SNIPPET,
+        ),
+        (
+            GKE_STORAGE_OLD_FUSE_ROUTING_SNIPPET,
+            GKE_STORAGE_NEW_FUSE_ROUTING_SNIPPET,
         ),
     ],
 }

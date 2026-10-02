@@ -671,3 +671,8 @@
 # (bench/kube_agents_bench/card_wake.py), so one front-door turn and no
 # worker: filing or unblocking a card fails the case's catastrophic fence.
 ./tasks/chat-voice-failure-leads-with-fact/task.yaml
+
+# gke-storage-troubleshooting skill probe: a dynamic StorageClass prefers
+# pd-balanced on dual-capable nodes through disk-type-preference: pd-type.
+# deployer: noop, transcript-only.
+./tasks/storage-dynamic-disk-preference-probe/task.yaml

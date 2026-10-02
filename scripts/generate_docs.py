@@ -115,6 +115,7 @@ SKILL_GROUPS: dict[str, list[str]] = {
         "gke-networking",
         "gke-service-networking",
         "gke-storage",
+        "gke-storage-troubleshooting",
     ],
     "AI and inference": [
         "gke-ai-troubleshooting-handle-disruption-gpu-tpu",

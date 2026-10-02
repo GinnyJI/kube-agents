@@ -343,6 +343,16 @@ class ApplySubstitutionsTest(unittest.TestCase):
                     if (other_target, other_replacement) != (target, replacement):
                         self.assertNotIn(other_replacement, replacement, skill_name)
 
+    def test_repo_storage_skill_routes_nowhere_unsynced(self):
+        # No route to google-cloud-storage-fuse, which this repository does not sync.
+        skill_md = (
+            Path(__file__).resolve().parent.parent / "agents" / "platform" / "skills" / "gke-storage" / "SKILL.md"
+        )
+        content = skill_md.read_text(encoding="utf-8")
+        for target, replacement in sync.SKILL_SUBSTITUTIONS["gke-storage"]:
+            self.assertNotIn(target, content)
+            self.assertEqual(content.count(replacement), 1, replacement)
+
     def test_skill_without_substitutions_is_untouched(self):
         # The guard must not turn "nothing configured" into a failure.
         d = self._skill_dir()
