@@ -42,9 +42,11 @@ verification_spec:
     check:
       type: report_contains
       required_phrases: ["clusters upgrade", "--node-pool"]
-      # Anchored to a command line, so "there is no node-pools upgrade
-      # command" (the synced skill's own note) does not trip it.
-      forbidden_patterns: ['(^|\$\s*)gcloud container node-pools upgrade']
+      # Anchored to the start of a line (the verifier sets no MULTILINE
+      # flag, so on \n), so "there is no node-pools upgrade command" (the
+      # synced skill's own note) does not trip it.
+      forbidden_patterns:
+        ['(^|\n)\s*(\$\s*)?gcloud container node-pools upgrade']
   - name: the-answer-states-the-92-day-window
     role: objective
     mode: assert
