@@ -594,7 +594,7 @@ class VerifyLocalCorrectionsTest(unittest.TestCase):
         self.assertIn("no SKILL.md", str(caught.exception))
 
     def test_every_registered_skill_is_covered(self):
-        # The pre-flight is only a guard if it reads both registries.
+        # The pre-flight is only a guard if it reads every registry.
         skills = self._faithful_upstream()
         for name in sorted(
             set(sync.SKILL_SUBSTITUTIONS) | set(sync.SKILL_FILE_SUBSTITUTIONS) | set(sync.SKILL_FOOTERS)

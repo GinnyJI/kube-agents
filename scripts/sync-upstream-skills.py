@@ -49,7 +49,7 @@ SUBSTITUTION_UNDECIDABLE = "undecidable"
 class UpstreamDriftError(Exception):
     """A registered local correction can no longer be applied to what upstream now ships.
 
-    Both registries below name an upstream skill and the text they expect to find in it. When
+    Each registry below names an upstream skill and the text they expect to find in it. When
     upstream edits that text — even by a bullet marker — renames the skill, or drops it, the
     correction stops being applied. Warning and carrying on published the uncorrected upstream
     content with the run still reporting success, so the sync refuses instead.

@@ -122,9 +122,10 @@ prettier-write: ## Reformat all Markdown/YAML in place.
 # The scripts under agents/platform/skills/gke-*/ are left out. Those trees are
 # copies of google/skills that scripts/sync-upstream-skills.py deletes and
 # re-copies wholesale (AGENTS.md, Skills Guidelines), and its substitution
-# hooks rewrite SKILL.md only, so a directive or fix written into one of their
-# .sh files lasts until the next sync and the target goes red on a tree nobody
-# edited by hand. A warning in one of them is fixed upstream, not here.
+# hooks rewrite only the files registered with them, so a directive or fix
+# written into one of their .sh files lasts until the next sync unless it is
+# registered, and the target goes red on a tree nobody edited by hand. A
+# warning in one of them is fixed upstream, not here.
 SHELLCHECK_PATHSPEC := *.sh
 SHELLCHECK_SKIP_PATHSPEC := :!agents/platform/skills/gke-*
 SHELLCHECK_SEVERITY := warning
