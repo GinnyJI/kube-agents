@@ -16,7 +16,6 @@ id: alert-config-terraform-promql-probe
 name: GKE memory alert in Terraform uses PromQL, the cAdvisor limit and the skill label
 
 owner: GinnyJI
-domain: reliability
 
 prompt: >-
   Write a Terraform alerting policy that pages me when any container in the
