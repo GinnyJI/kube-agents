@@ -232,6 +232,18 @@ GKE_BACKUP_DR_NEW_TERMINOLOGY_SNIPPET = """    Service**, as **Backup for GKE** 
 ## Golden Path Backup Defaults
 """
 
+# The skill's restore plan leaves out --volume-data-restore-policy, whose default is
+# no-volume-data-restoration: the restore brings back PVCs bound to blank volumes even though the
+# backup plan above it includes volume data. The replacement restores from the backup.
+GKE_BACKUP_DR_OLD_RESTORE_POLICY_SNIPPET = """  --all-namespaces \\
+  --cluster-resource-conflict-policy=use-existing-version \\
+"""
+
+GKE_BACKUP_DR_NEW_RESTORE_POLICY_SNIPPET = """  --all-namespaces \\
+  --volume-data-restore-policy=restore-volume-data-from-backup \\
+  --cluster-resource-conflict-policy=use-existing-version \\
+"""
+
 # In-place content substitutions applied to freshly-synced skills to correct upstream defects
 # where an appended footer is insufficient (e.g. multi-step remediation commands), to route to a
 # skill only this repository has from a passage upstream cannot know about, or to drop a name this
@@ -278,6 +290,10 @@ SKILL_SUBSTITUTIONS = {
         (
             GKE_BACKUP_DR_OLD_TERMINOLOGY_SNIPPET,
             GKE_BACKUP_DR_NEW_TERMINOLOGY_SNIPPET,
+        ),
+        (
+            GKE_BACKUP_DR_OLD_RESTORE_POLICY_SNIPPET,
+            GKE_BACKUP_DR_NEW_RESTORE_POLICY_SNIPPET,
         ),
     ],
 }

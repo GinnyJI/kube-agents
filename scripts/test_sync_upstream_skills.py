@@ -343,8 +343,9 @@ class ApplySubstitutionsTest(unittest.TestCase):
                     if (other_target, other_replacement) != (target, replacement):
                         self.assertNotIn(other_replacement, replacement, skill_name)
 
-    def test_repo_backup_dr_skill_keeps_the_golden_path_heading(self):
-        # The Golden Path heading on a line of its own, so it renders.
+    def test_repo_backup_dr_skill_carries_every_substitution(self):
+        # The Golden Path heading on a line of its own, so it renders, and a restore plan that
+        # restores volume data.
         skill_md = (
             Path(__file__).resolve().parent.parent / "agents" / "platform" / "skills" / "gke-backup-dr" / "SKILL.md"
         )

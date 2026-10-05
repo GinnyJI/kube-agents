@@ -43,6 +43,7 @@ gcloud beta container backup-restore restore-plans create {restore_plan_name} \
   --cluster=projects/{project_id}/locations/{location}/clusters/{target_cluster_name} \
   --backup-plan=projects/{project_id}/locations/{location}/backupPlans/{source_backup_plan_name} \
   --all-namespaces \
+  --volume-data-restore-policy=restore-volume-data-from-backup \
   --cluster-resource-conflict-policy=use-existing-version \
   --namespaced-resource-restore-mode=fail-on-conflict --quiet
 
