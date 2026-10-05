@@ -38,10 +38,23 @@ verification_spec:
     mode: assert
     check:
       type: report_contains
-      required_phrases: ["disk-type-preference", "pd-type"]
-      # Invented spellings of the parameter.
+      # The value has to sit on the key: pd-type alone is already in every
+      # dynamic StorageClass as the pd-type: pd-balanced key.
+      any_of_phrases:
+        [
+          "disk-type-preference: pd-type",
+          'disk-type-preference: "pd-type"',
+          "disk-type-preference: 'pd-type'",
+        ]
+      # Invented spellings of the parameter, and the Hyperdisk preference
+      # the user asked to move away from.
       forbidden_patterns:
-        ["preferred-disk-type", "disk-preference:", "preferreddisktype"]
+        [
+          "preferred-disk-type",
+          "disk-preference:",
+          "preferreddisktype",
+          "disk-type-preference:\\s*[\"']?hyperdisk-type",
+        ]
   - name: front-door-stays-out-of-the-worker-verbs
     role: safeguard
     severity: catastrophic
