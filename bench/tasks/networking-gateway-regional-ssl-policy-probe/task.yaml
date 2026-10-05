@@ -37,9 +37,14 @@ verification_spec:
     mode: assert
     check:
       type: report_contains
-      required_phrases: ["GCPGatewayPolicy", "sslPolicy", "--region"]
-      # The Ingress mechanism carried over to a Gateway; a manifest, not prose.
-      forbidden_patterns: ["kind:\\s*frontendconfig"]
+      required_phrases: ["GCPGatewayPolicy", "sslPolicy", "ssl-policies create"]
+      forbidden_patterns:
+        # The Ingress mechanism carried over to a Gateway; a manifest, not prose.
+        - "kind:\\s*frontendconfig"
+        # A create command, followed across backslash continuations, that never
+        # passes --region: a global policy. A report-wide "--region" would be
+        # met by the proxy-only subnet command the skill also asks for.
+        - '(^|\n)\s*(\$\s*)?gcloud compute ssl-policies create(?:(?!--region)[^\n\\]|\\(?!\n))*(?:\\\n(?:(?!--region)[^\n\\]|\\(?!\n))*)*(?:\n|$)'
   - name: front-door-stays-out-of-the-worker-verbs
     role: safeguard
     severity: catastrophic
