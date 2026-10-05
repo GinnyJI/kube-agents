@@ -29,19 +29,26 @@ kubectl get pdb -A -o wide
 kubectl describe pdb PDB_NAME -n NAMESPACE
 ```
 
-**Fix — temporarily relax the PDB:**
+**Fix — temporarily relax the PDB, and restore it in the same procedure:**
 ```bash
-# Option A: Allow all disruptions temporarily
-kubectl patch pdb PDB_NAME -n NAMESPACE \
-  -p '{"spec":{"minAvailable":null,"maxUnavailable":"100%"}}'
-
-# Option B: Back up and edit
+# 1. Record the original values before touching anything
 kubectl get pdb PDB_NAME -n NAMESPACE -o yaml > pdb-backup.yaml
-# Edit minAvailable/maxUnavailable, then:
-kubectl apply -f pdb-backup.yaml
-```
 
-Restore original PDB after upgrade completes.
+# 2. Allow all disruptions temporarily
+kubectl patch pdb PDB_NAME -n NAMESPACE \
+  --type merge -p '{"spec":{"minAvailable":null,"maxUnavailable":"100%"}}'
+
+# 3. Once the upgrade completes, RESTORE (mandatory): patch back the value
+#    pdb-backup.yaml records and clear the other field. If it set minAvailable:
+kubectl patch pdb PDB_NAME -n NAMESPACE \
+  --type merge -p '{"spec":{"maxUnavailable":null,"minAvailable":ORIGINAL_MIN_AVAILABLE}}'
+#    If it set maxUnavailable:
+kubectl patch pdb PDB_NAME -n NAMESPACE \
+  --type merge -p '{"spec":{"maxUnavailable":ORIGINAL_MAX_UNAVAILABLE}}'
+
+# 4. Verify the restore: the spec matches pdb-backup.yaml again
+kubectl get pdb PDB_NAME -n NAMESPACE -o yaml | grep -E 'minAvailable|maxUnavailable'
+```
 
 ## 2. Resource constraints (no room for pods)
 

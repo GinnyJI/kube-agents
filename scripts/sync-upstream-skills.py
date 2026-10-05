@@ -460,13 +460,71 @@ GKE_UPGRADES_TROUBLESHOOTING_NEW_ROLLBACK_SNIPPET = """3. **Rollback Node Pool (
 
 # gke-upgrades' runbook template relaxes a blocking PDB by merging maxUnavailable into it, which
 # the API server rejects on a PDB that sets minAvailable ("minAvailable and maxUnavailable cannot be
-# both set"). The replacement clears minAvailable in the same patch; the restore step re-applies
-# the backup either way.
+# both set"). The replacement clears minAvailable in the same patch.
 GKE_UPGRADES_RUNBOOK_OLD_PDB_RELAX_SNIPPET = """kubectl patch pdb PDB_NAME -n NAMESPACE \\
   --type merge -p '{"spec":{"maxUnavailable":"100%"}}'"""
 
 GKE_UPGRADES_RUNBOOK_NEW_PDB_RELAX_SNIPPET = """kubectl patch pdb PDB_NAME -n NAMESPACE \\
   --type merge -p '{"spec":{"minAvailable":null,"maxUnavailable":"100%"}}'"""
+
+# Its restore step then re-applies a `kubectl get pdb -A -o yaml` dump. The dump carries each PDB's
+# resourceVersion, which the relax patch has since changed, so the API server answers the apply with
+# a 409 conflict; and a three-way apply would not remove the maxUnavailable the relax step set, so a
+# PDB that used minAvailable would end with both fields set. The replacement restores by patch: the
+# recorded value back, the other field cleared.
+GKE_UPGRADES_RUNBOOK_OLD_PDB_RESTORE_SNIPPET = """# 3. RESTORE the original PDB — mandatory, not optional. Re-apply from the
+#    backup rather than retyping the values.
+kubectl apply -f /tmp/pdb-backup-TIMESTAMP.yaml"""
+
+GKE_UPGRADES_RUNBOOK_NEW_PDB_RESTORE_SNIPPET = """# 3. RESTORE the original PDB — mandatory, not optional. Patch back the value
+#    the backup records for PDB_NAME and clear the field step 1 set. Do not
+#    `kubectl apply` the backup: its stale resourceVersion is rejected with a
+#    conflict. If the PDB originally set minAvailable:
+kubectl patch pdb PDB_NAME -n NAMESPACE \\
+  --type merge -p '{"spec":{"maxUnavailable":null,"minAvailable":ORIGINAL_MIN_AVAILABLE}}'
+#    If it originally set maxUnavailable:
+kubectl patch pdb PDB_NAME -n NAMESPACE \\
+  --type merge -p '{"spec":{"maxUnavailable":ORIGINAL_MAX_UNAVAILABLE}}'
+#    (an integer as-is, a percentage quoted, e.g. "50%")"""
+
+# troubleshooting.md §1 relaxes a PDB with no backup and leaves the restore as a closing remark,
+# against SKILL.md's own rule that a runbook relaxing a safety control restores it as a numbered,
+# verified step; its Option B re-applies a dump the same way the runbook template did. The
+# replacement records, relaxes, restores by patch and verifies, in order.
+GKE_UPGRADES_TROUBLESHOOTING_OLD_PDB_FIX_SNIPPET = """**Fix — temporarily relax the PDB:**
+```bash
+# Option A: Allow all disruptions temporarily
+kubectl patch pdb PDB_NAME -n NAMESPACE \\
+  -p '{"spec":{"minAvailable":null,"maxUnavailable":"100%"}}'
+
+# Option B: Back up and edit
+kubectl get pdb PDB_NAME -n NAMESPACE -o yaml > pdb-backup.yaml
+# Edit minAvailable/maxUnavailable, then:
+kubectl apply -f pdb-backup.yaml
+```
+
+Restore original PDB after upgrade completes."""
+
+GKE_UPGRADES_TROUBLESHOOTING_NEW_PDB_FIX_SNIPPET = """**Fix — temporarily relax the PDB, and restore it in the same procedure:**
+```bash
+# 1. Record the original values before touching anything
+kubectl get pdb PDB_NAME -n NAMESPACE -o yaml > pdb-backup.yaml
+
+# 2. Allow all disruptions temporarily
+kubectl patch pdb PDB_NAME -n NAMESPACE \\
+  --type merge -p '{"spec":{"minAvailable":null,"maxUnavailable":"100%"}}'
+
+# 3. Once the upgrade completes, RESTORE (mandatory): patch back the value
+#    pdb-backup.yaml records and clear the other field. If it set minAvailable:
+kubectl patch pdb PDB_NAME -n NAMESPACE \\
+  --type merge -p '{"spec":{"maxUnavailable":null,"minAvailable":ORIGINAL_MIN_AVAILABLE}}'
+#    If it set maxUnavailable:
+kubectl patch pdb PDB_NAME -n NAMESPACE \\
+  --type merge -p '{"spec":{"maxUnavailable":ORIGINAL_MAX_UNAVAILABLE}}'
+
+# 4. Verify the restore: the spec matches pdb-backup.yaml again
+kubectl get pdb PDB_NAME -n NAMESPACE -o yaml | grep -E 'minAvailable|maxUnavailable'
+```"""
 
 # The same corrections for a file in a skill other than its SKILL.md, keyed by skill and then by
 # the file's path inside the skill directory. A skill's reference files are wiped and re-copied
@@ -491,8 +549,16 @@ SKILL_FILE_SUBSTITUTIONS = {
                 GKE_UPGRADES_RUNBOOK_OLD_PDB_RELAX_SNIPPET,
                 GKE_UPGRADES_RUNBOOK_NEW_PDB_RELAX_SNIPPET,
             ),
+            (
+                GKE_UPGRADES_RUNBOOK_OLD_PDB_RESTORE_SNIPPET,
+                GKE_UPGRADES_RUNBOOK_NEW_PDB_RESTORE_SNIPPET,
+            ),
         ],
         os.path.join("references", "troubleshooting.md"): [
+            (
+                GKE_UPGRADES_TROUBLESHOOTING_OLD_PDB_FIX_SNIPPET,
+                GKE_UPGRADES_TROUBLESHOOTING_NEW_PDB_FIX_SNIPPET,
+            ),
             (
                 GKE_UPGRADES_TROUBLESHOOTING_OLD_SURGE_SNIPPET,
                 GKE_UPGRADES_TROUBLESHOOTING_NEW_SURGE_SNIPPET,

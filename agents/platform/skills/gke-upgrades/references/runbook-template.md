@@ -166,9 +166,16 @@ kubectl patch pdb PDB_NAME -n NAMESPACE \
 # 2. Drain, then verify workloads are Running on the replacement pool
 kubectl get pods -o wide --field-selector spec.nodeName!='' -A | grep NODE_POOL_NAME-rollback
 
-# 3. RESTORE the original PDB — mandatory, not optional. Re-apply from the
-#    backup rather than retyping the values.
-kubectl apply -f /tmp/pdb-backup-TIMESTAMP.yaml
+# 3. RESTORE the original PDB — mandatory, not optional. Patch back the value
+#    the backup records for PDB_NAME and clear the field step 1 set. Do not
+#    `kubectl apply` the backup: its stale resourceVersion is rejected with a
+#    conflict. If the PDB originally set minAvailable:
+kubectl patch pdb PDB_NAME -n NAMESPACE \
+  --type merge -p '{"spec":{"maxUnavailable":null,"minAvailable":ORIGINAL_MIN_AVAILABLE}}'
+#    If it originally set maxUnavailable:
+kubectl patch pdb PDB_NAME -n NAMESPACE \
+  --type merge -p '{"spec":{"maxUnavailable":ORIGINAL_MAX_UNAVAILABLE}}'
+#    (an integer as-is, a percentage quoted, e.g. "50%")
 
 # 4. Confirm the restore took effect
 kubectl get pdb -A   # ALLOWED DISRUPTIONS should match the pre-drain values
