@@ -458,6 +458,16 @@ GKE_UPGRADES_TROUBLESHOOTING_NEW_ROLLBACK_SNIPPET = """3. **Rollback Node Pool (
    ```
 """
 
+# gke-upgrades' runbook template relaxes a blocking PDB by merging maxUnavailable into it, which
+# the API server rejects on a PDB that sets minAvailable ("minAvailable and maxUnavailable cannot be
+# both set"). The replacement clears minAvailable in the same patch; the restore step re-applies
+# the backup either way.
+GKE_UPGRADES_RUNBOOK_OLD_PDB_RELAX_SNIPPET = """kubectl patch pdb PDB_NAME -n NAMESPACE \\
+  --type merge -p '{"spec":{"maxUnavailable":"100%"}}'"""
+
+GKE_UPGRADES_RUNBOOK_NEW_PDB_RELAX_SNIPPET = """kubectl patch pdb PDB_NAME -n NAMESPACE \\
+  --type merge -p '{"spec":{"minAvailable":null,"maxUnavailable":"100%"}}'"""
+
 # The same corrections for a file in a skill other than its SKILL.md, keyed by skill and then by
 # the file's path inside the skill directory. A skill's reference files are wiped and re-copied
 # with the rest of it, so an edit made to one by hand lasts until the next sync unless it is
@@ -476,6 +486,12 @@ SKILL_FILE_SUBSTITUTIONS = {
         ],
     },
     "gke-upgrades": {
+        os.path.join("references", "runbook-template.md"): [
+            (
+                GKE_UPGRADES_RUNBOOK_OLD_PDB_RELAX_SNIPPET,
+                GKE_UPGRADES_RUNBOOK_NEW_PDB_RELAX_SNIPPET,
+            ),
+        ],
         os.path.join("references", "troubleshooting.md"): [
             (
                 GKE_UPGRADES_TROUBLESHOOTING_OLD_SURGE_SNIPPET,

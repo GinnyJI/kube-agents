@@ -161,7 +161,7 @@ step of the same runbook — never as a follow-up someone may forget:
 # 1. Relax the blocking PDB (only after confirming the replacement pool is
 #    Ready and can accept the workload)
 kubectl patch pdb PDB_NAME -n NAMESPACE \
-  --type merge -p '{"spec":{"maxUnavailable":"100%"}}'
+  --type merge -p '{"spec":{"minAvailable":null,"maxUnavailable":"100%"}}'
 
 # 2. Drain, then verify workloads are Running on the replacement pool
 kubectl get pods -o wide --field-selector spec.nodeName!='' -A | grep NODE_POOL_NAME-rollback
