@@ -231,6 +231,14 @@ class ApplySubstitutionsTest(unittest.TestCase):
             self.assertNotIn(target, content)
             self.assertEqual(content.count(replacement), 1, replacement)
 
+    def test_repo_service_networking_skill_carries_every_substitution(self):
+        repo_root = Path(__file__).resolve().parent.parent
+        skill_md = repo_root / "agents" / "platform" / "skills" / "gke-service-networking" / "SKILL.md"
+        content = skill_md.read_text(encoding="utf-8")
+        for target, replacement in sync.SKILL_SUBSTITUTIONS["gke-service-networking"]:
+            self.assertNotIn(target, content)
+            self.assertEqual(content.count(replacement), 1, replacement)
+
     def test_repo_workload_security_skills_have_enforcement_command(self):
         repo_root = Path(__file__).resolve().parent.parent
         for agent in ["platform", "cluster"]:

@@ -28,9 +28,8 @@ placeholders before applying.
 
 The Gateway API is the modern way to manage routing in Kubernetes.
 
-**Prerequisites**: Gateway API must be enabled on the cluster (enabled by
-default on new clusters running GKE 1.26+; on older supported versions enable it
-with `--gateway-api=standard`).
+**Prerequisites**: Gateway API must be enabled on the cluster (always enabled on
+Autopilot; on Standard clusters enable it with `--gateway-api=standard`).
 
 **Templates:**
 

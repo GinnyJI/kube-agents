@@ -216,6 +216,16 @@ GKE_MANIFEST_GENERATION_NEW_DEVELOPER_KNOWLEDGE_SNIPPET = """        -   **`sear
             project, shared by every agent in the install, and it reads the
             same corpus as `search_documents`. Never retry its `429`."""
 
+# gke-service-networking upstream says Gateway API is on by default on every new 1.26+ cluster.
+# GKE turns it on unconditionally only on Autopilot; a Standard cluster needs
+# `--gateway-api=standard` at any version, so the replacement says which mode needs the flag.
+GKE_SERVICE_NETWORKING_OLD_GATEWAY_DEFAULT_SNIPPET = """**Prerequisites**: Gateway API must be enabled on the cluster (enabled by
+default on new clusters running GKE 1.26+; on older supported versions enable it
+with `--gateway-api=standard`)."""
+
+GKE_SERVICE_NETWORKING_NEW_GATEWAY_DEFAULT_SNIPPET = """**Prerequisites**: Gateway API must be enabled on the cluster (always enabled on
+Autopilot; on Standard clusters enable it with `--gateway-api=standard`)."""
+
 # In-place content substitutions applied to freshly-synced skills to correct upstream defects
 # where an appended footer is insufficient (e.g. multi-step remediation commands), to route to a
 # skill only this repository has from a passage upstream cannot know about, or to drop a name this
@@ -256,6 +266,12 @@ SKILL_SUBSTITUTIONS = {
         (
             GKE_WORKLOAD_TROUBLESHOOTING_OLD_STEP5_SUBMIT_SNIPPET,
             GKE_WORKLOAD_TROUBLESHOOTING_NEW_STEP5_SUBMIT_SNIPPET,
+        ),
+    ],
+    "gke-service-networking": [
+        (
+            GKE_SERVICE_NETWORKING_OLD_GATEWAY_DEFAULT_SNIPPET,
+            GKE_SERVICE_NETWORKING_NEW_GATEWAY_DEFAULT_SNIPPET,
         ),
     ],
 }
