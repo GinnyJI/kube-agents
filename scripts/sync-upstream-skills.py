@@ -416,6 +416,48 @@ GKE_BASICS_CLI_REFERENCE_OLD_WHEN_TO_USE_SNIPPET = "### When to use each\n"
 
 GKE_BASICS_CLI_REFERENCE_NEW_WHEN_TO_USE_SNIPPET = "### When to use each (Cluster Operations)\n"
 
+# gke-upgrades' troubleshooting reference offers four node-pool fixes with no word that they apply
+# to Standard clusters only, so fleet audits on Autopilot recommended surge and driver changes GKE
+# does not let the user make. The replacements restore the qualifiers this repository had added by
+# hand before references could be registered here.
+GKE_UPGRADES_TROUBLESHOOTING_OLD_SURGE_SNIPPET = "**Fix — increase surge capacity:**\n"
+
+GKE_UPGRADES_TROUBLESHOOTING_NEW_SURGE_SNIPPET = (
+    "**Fix — increase surge capacity (Standard clusters only; Autopilot manages node upgrades "
+    "automatically):**\n"
+)
+
+GKE_UPGRADES_TROUBLESHOOTING_OLD_STRATEGY_SNIPPET = "1. **Change Upgrade Strategy**: "
+
+GKE_UPGRADES_TROUBLESHOOTING_NEW_STRATEGY_SNIPPET = (
+    "1. **Change Upgrade Strategy (Standard clusters only)**: "
+)
+
+GKE_UPGRADES_TROUBLESHOOTING_OLD_DRIVER_SNIPPET = "1. **Pin Driver Version**: "
+
+GKE_UPGRADES_TROUBLESHOOTING_NEW_DRIVER_SNIPPET = "1. **Pin Driver Version (Standard clusters only)**: "
+
+# The same reference rolls a node pool back with `gcloud container node-pools upgrade`, a command
+# that does not exist; the skill's own runbook template says node pools upgrade through
+# `clusters upgrade --node-pool`. The replacement also restores the Standard-only qualifier.
+GKE_UPGRADES_TROUBLESHOOTING_OLD_ROLLBACK_SNIPPET = """3. **Rollback Node Pool**: If production is blocked, roll back the node pool to the previous GKE version:
+   ```bash
+   gcloud container node-pools upgrade NODE_POOL_NAME \\
+     --cluster CLUSTER_NAME \\
+     --zone ZONE \\
+     --cluster-version PREVIOUS_VERSION
+   ```
+"""
+
+GKE_UPGRADES_TROUBLESHOOTING_NEW_ROLLBACK_SNIPPET = """3. **Rollback Node Pool (Standard clusters only)**: If production is blocked, roll back the node pool to the previous GKE version:
+   ```bash
+   gcloud container clusters upgrade CLUSTER_NAME \\
+     --node-pool NODE_POOL_NAME \\
+     --zone ZONE \\
+     --cluster-version PREVIOUS_VERSION
+   ```
+"""
+
 # The same corrections for a file in a skill other than its SKILL.md, keyed by skill and then by
 # the file's path inside the skill directory. A skill's reference files are wiped and re-copied
 # with the rest of it, so an edit made to one by hand lasts until the next sync unless it is
@@ -430,6 +472,26 @@ SKILL_FILE_SUBSTITUTIONS = {
             (
                 GKE_BASICS_CLI_REFERENCE_OLD_WHEN_TO_USE_SNIPPET,
                 GKE_BASICS_CLI_REFERENCE_NEW_WHEN_TO_USE_SNIPPET,
+            ),
+        ],
+    },
+    "gke-upgrades": {
+        os.path.join("references", "troubleshooting.md"): [
+            (
+                GKE_UPGRADES_TROUBLESHOOTING_OLD_SURGE_SNIPPET,
+                GKE_UPGRADES_TROUBLESHOOTING_NEW_SURGE_SNIPPET,
+            ),
+            (
+                GKE_UPGRADES_TROUBLESHOOTING_OLD_STRATEGY_SNIPPET,
+                GKE_UPGRADES_TROUBLESHOOTING_NEW_STRATEGY_SNIPPET,
+            ),
+            (
+                GKE_UPGRADES_TROUBLESHOOTING_OLD_DRIVER_SNIPPET,
+                GKE_UPGRADES_TROUBLESHOOTING_NEW_DRIVER_SNIPPET,
+            ),
+            (
+                GKE_UPGRADES_TROUBLESHOOTING_OLD_ROLLBACK_SNIPPET,
+                GKE_UPGRADES_TROUBLESHOOTING_NEW_ROLLBACK_SNIPPET,
             ),
         ],
     },
