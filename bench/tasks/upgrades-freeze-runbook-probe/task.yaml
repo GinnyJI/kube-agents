@@ -7,11 +7,13 @@
 #   - it bounded `no_upgrades` exclusions by a rolling 365-day window and
 #     maintenance availability by a rolling 32-day window. GKE's rule is 90
 #     days per exclusion, at most three, with 48 hours of maintenance
-#     availability in any rolling 92-day window.
+#     availability in any rolling 92-day window
+#     (https://cloud.google.com/kubernetes-engine/docs/concepts/maintenance-windows-and-exclusions).
 #
-# Planted defect required: none. deployer: noop, no fixture, no cluster read.
+# Planted defect required: none. deployer: noop: no fixture is deployed, and
+# the prompt tells the agent not to run anything.
 #
-# Isolation class: read-only (no cluster touched at all).
+# Isolation class: read-only (nothing is deployed for the case).
 # Tier: nightly (hack/eval/nightly-cases.txt).
 id: upgrades-freeze-runbook-probe
 name: Node-pool upgrade runbook uses a real command and the 92-day exclusion rule
