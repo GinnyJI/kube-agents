@@ -118,7 +118,9 @@ class ApplySubstitutionsTest(unittest.TestCase):
         return (d / sync.SKILL_MD_FILENAME).read_text(encoding=sync.UTF_8_ENCODING)
 
     def test_applies_substitution_for_configured_skill(self):
-        d = self._skill_dir(body=sync.GKE_WORKLOAD_SECURITY_OLD_NETPOL_SNIPPET + "\n")
+        d = self._skill_dir_covering(
+            "gke-workload-security", sync.GKE_WORKLOAD_SECURITY_OLD_NETPOL_SNIPPET
+        )
         self.assertTrue(sync.apply_substitutions(str(d), "gke-workload-security"))
         text = self._read(d)
         self.assertNotIn(sync.GKE_WORKLOAD_SECURITY_OLD_NETPOL_SNIPPET, text)
@@ -126,7 +128,9 @@ class ApplySubstitutionsTest(unittest.TestCase):
         self.assertIn("--enable-network-policy", text)
 
     def test_idempotent_no_duplicate(self):
-        d = self._skill_dir(body=sync.GKE_WORKLOAD_SECURITY_OLD_NETPOL_SNIPPET + "\n")
+        d = self._skill_dir_covering(
+            "gke-workload-security", sync.GKE_WORKLOAD_SECURITY_OLD_NETPOL_SNIPPET
+        )
         self.assertTrue(sync.apply_substitutions(str(d), "gke-workload-security"))
         # Second call must be a no-op (replacement already present).
         self.assertFalse(sync.apply_substitutions(str(d), "gke-workload-security"))
