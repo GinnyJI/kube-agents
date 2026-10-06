@@ -125,7 +125,8 @@ prettier-write: ## Reformat all Markdown/YAML in place.
 # hooks rewrite only the files registered with them, so a directive or fix
 # written into one of their .sh files lasts until the next sync unless it is
 # registered, and the target goes red on a tree nobody edited by hand. A
-# warning in one of them is fixed upstream, not here.
+# warning in one of them is fixed upstream, or registered in
+# SKILL_FILE_SUBSTITUTIONS, not here.
 SHELLCHECK_PATHSPEC := *.sh
 SHELLCHECK_SKIP_PATHSPEC := :!agents/platform/skills/gke-*
 SHELLCHECK_SEVERITY := warning
