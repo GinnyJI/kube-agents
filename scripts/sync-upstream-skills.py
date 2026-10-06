@@ -300,6 +300,13 @@ GKE_PRODUCTIONIZE_NEW_SECURITY_ACTION_SNIPPET = """-   **Action**: You MUST run 
     Identity, and the `gke-platform-security` and `gke-workload-security` skills
     for Network Policies and Shielded Nodes."""
 
+# gke-upgrades' SKILL.md tells a runbook to make "re-applying" the PDB backup its restore step, the
+# re-apply the runbook template and troubleshooting corrections below replace because the API server
+# rejects it with a conflict. The replacement names the restore those references now give.
+GKE_UPGRADES_OLD_PDB_RESTORE_RULE_SNIPPET = "make re-applying them a numbered step"
+
+GKE_UPGRADES_NEW_PDB_RESTORE_RULE_SNIPPET = "make restoring them by patch a numbered step"
+
 # In-place content substitutions applied to freshly-synced skills to correct upstream defects
 # where an appended footer is insufficient (e.g. multi-step remediation commands), to route to a
 # skill only this repository has from a passage upstream cannot know about, or to drop a name this
@@ -378,6 +385,12 @@ SKILL_SUBSTITUTIONS = {
             GKE_WORKLOAD_TROUBLESHOOTING_NEW_STEP5_SUBMIT_SNIPPET,
         ),
     ],
+    "gke-upgrades": [
+        (
+            GKE_UPGRADES_OLD_PDB_RESTORE_RULE_SNIPPET,
+            GKE_UPGRADES_NEW_PDB_RESTORE_RULE_SNIPPET,
+        ),
+    ],
 }
 
 # gke-basics' tool-preference reference upstream ranks only the interfaces for live cluster
@@ -436,6 +449,23 @@ GKE_UPGRADES_TROUBLESHOOTING_NEW_STRATEGY_SNIPPET = (
 GKE_UPGRADES_TROUBLESHOOTING_OLD_DRIVER_SNIPPET = "1. **Pin Driver Version**: "
 
 GKE_UPGRADES_TROUBLESHOOTING_NEW_DRIVER_SNIPPET = "1. **Pin Driver Version (Standard clusters only)**: "
+
+# Its §10 resume fix and §11 blue-green update are node-pool operations too, which Autopilot does
+# not expose, and they need the same qualifier.
+GKE_UPGRADES_TROUBLESHOOTING_OLD_RESUME_SNIPPET = (
+    "**Fix — resume a canceled/partially-completed node pool upgrade** by re-issuing"
+)
+
+GKE_UPGRADES_TROUBLESHOOTING_NEW_RESUME_SNIPPET = (
+    "**Fix — resume a canceled/partially-completed node pool upgrade (Standard clusters only)** "
+    "by re-issuing"
+)
+
+GKE_UPGRADES_TROUBLESHOOTING_OLD_BLUE_GREEN_UPDATE_SNIPPET = "**Update an existing node pool:**\n"
+
+GKE_UPGRADES_TROUBLESHOOTING_NEW_BLUE_GREEN_UPDATE_SNIPPET = (
+    "**Update an existing node pool (Standard clusters only):**\n"
+)
 
 # The same reference rolls a node pool back with `gcloud container node-pools upgrade`, a command
 # that does not exist; the skill's own runbook template says node pools upgrade through
@@ -574,6 +604,14 @@ SKILL_FILE_SUBSTITUTIONS = {
             (
                 GKE_UPGRADES_TROUBLESHOOTING_OLD_ROLLBACK_SNIPPET,
                 GKE_UPGRADES_TROUBLESHOOTING_NEW_ROLLBACK_SNIPPET,
+            ),
+            (
+                GKE_UPGRADES_TROUBLESHOOTING_OLD_RESUME_SNIPPET,
+                GKE_UPGRADES_TROUBLESHOOTING_NEW_RESUME_SNIPPET,
+            ),
+            (
+                GKE_UPGRADES_TROUBLESHOOTING_OLD_BLUE_GREEN_UPDATE_SNIPPET,
+                GKE_UPGRADES_TROUBLESHOOTING_NEW_BLUE_GREEN_UPDATE_SNIPPET,
             ),
         ],
     },

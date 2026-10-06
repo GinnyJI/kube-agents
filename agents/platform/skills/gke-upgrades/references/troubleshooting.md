@@ -225,7 +225,7 @@ gcloud container node-pools get-upgrade-info POOL_NAME --cluster CLUSTER_NAME --
 - `CLUSTER_DISRUPTION_BUDGET` / `CLUSTER_DISRUPTION_BUDGET_MINOR_UPGRADE` — a post-operation cooldown protecting cluster stability.
 - `SYSTEM_CONFIG` — temporarily paused by GKE for technical or business reasons. **Do not force a manual upgrade unless it is required.**
 
-**Fix — resume a canceled/partially-completed node pool upgrade** by re-issuing the same upgrade:
+**Fix — resume a canceled/partially-completed node pool upgrade (Standard clusters only)** by re-issuing the same upgrade:
 ```bash
 gcloud container clusters upgrade CLUSTER_NAME \
   --node-pool=NODE_POOL_NAME \
@@ -243,7 +243,7 @@ Blue-green upgrades add batch/soak controls that surge upgrades don't have. Use 
 - `BATCH_SOAK_DURATION` — wait after each batch drain (default `0s`).
 - `NODE_POOL_SOAK_DURATION` — wait after all batches drain, before the blue pool is deleted (default `3600s`).
 
-**Update an existing node pool:**
+**Update an existing node pool (Standard clusters only):**
 ```bash
 gcloud container node-pools update NODE_POOL_NAME \
   --cluster CLUSTER_NAME --location LOCATION \
