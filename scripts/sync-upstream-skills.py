@@ -242,6 +242,54 @@ GKE_MANIFEST_GENERATION_NEW_DEVELOPER_KNOWLEDGE_SNIPPET = """        -   **`sear
             project, shared by every agent in the install, and it reads the
             same corpus as `search_documents`. Never retry its `429`."""
 
+# The Workload Identity split moved WI routing out of gke-workload-security in the skills'
+# descriptions only; the bodies an agent reads after routing still send it there, and
+# gke-workload-security's §2 still teaches GSA impersonation as the recommended path, which
+# gke-workload-identity calls legacy. These pairs point the bodies at gke-workload-identity.
+GKE_WORKLOAD_SECURITY_OLD_SCOPE_SNIPPET = """covers security auditing, Identity and Access Management (Workload Identity),
+Network Security (Network Policies), and Node Security."""
+
+GKE_WORKLOAD_SECURITY_NEW_SCOPE_SNIPPET = """covers security auditing, Network Security (Network Policies), and Node Security.
+For Workload Identity setup, use the `gke-workload-identity` skill."""
+
+GKE_WORKLOAD_SECURITY_OLD_WI_INTRO_SNIPPET = """### 2. Configure Workload Identity
+
+Workload Identity allows Kubernetes Service Accounts (KSAs) to impersonate
+Google Service Accounts (GSAs). This is the recommended method for workloads to
+access Google Cloud APIs.
+"""
+
+GKE_WORKLOAD_SECURITY_NEW_WI_INTRO_SNIPPET = """### 2. Configure Workload Identity (legacy GSA impersonation)
+
+Load the `gke-workload-identity` skill first: it prefers binding IAM roles to
+the Kubernetes Service Account (KSA) principal directly and treats the
+impersonation setup below, where a KSA impersonates a Google Service Account
+(GSA), as the legacy path. Use these steps only when that skill calls for
+impersonation.
+"""
+
+GKE_PLATFORM_SECURITY_OLD_SCOPE_SNIPPET = """controls (such as Workload Identity Service Account bindings,
+SecretProviderClass volume mounts, Network Policies, and Pod Security
+Standards), refer to the `gke-workload-security` skill."""
+
+GKE_PLATFORM_SECURITY_NEW_SCOPE_SNIPPET = """controls (such as SecretProviderClass volume mounts, Network Policies, and Pod
+Security Standards), refer to the `gke-workload-security` skill; for Workload
+Identity Service Account bindings, the `gke-workload-identity` skill."""
+
+GKE_PLATFORM_SECURITY_OLD_WI_IAM_SNIPPET = """    Service Accounts (`roles/iam.workloadIdentityUser`), refer to the
+    `gke-workload-security` skill."""
+
+GKE_PLATFORM_SECURITY_NEW_WI_IAM_SNIPPET = """    Service Accounts (`roles/iam.workloadIdentityUser`), refer to the
+    `gke-workload-identity` skill."""
+
+GKE_PRODUCTIONIZE_OLD_SECURITY_ACTION_SNIPPET = """-   **Action**: You MUST run the `gke-platform-security` and
+    `gke-workload-security` skills for Workload Identity, Network Policies, and
+    Shielded Nodes."""
+
+GKE_PRODUCTIONIZE_NEW_SECURITY_ACTION_SNIPPET = """-   **Action**: You MUST run the `gke-workload-identity` skill for Workload
+    Identity, and the `gke-platform-security` and `gke-workload-security` skills
+    for Network Policies and Shielded Nodes."""
+
 # In-place content substitutions applied to freshly-synced skills to correct upstream defects
 # where an appended footer is insufficient (e.g. multi-step remediation commands), to route to a
 # skill only this repository has from a passage upstream cannot know about, or to drop a name this
@@ -252,6 +300,30 @@ SKILL_SUBSTITUTIONS = {
         (
             GKE_WORKLOAD_SECURITY_OLD_NETPOL_SNIPPET,
             GKE_WORKLOAD_SECURITY_NEW_NETPOL_SNIPPET,
+        ),
+        (
+            GKE_WORKLOAD_SECURITY_OLD_SCOPE_SNIPPET,
+            GKE_WORKLOAD_SECURITY_NEW_SCOPE_SNIPPET,
+        ),
+        (
+            GKE_WORKLOAD_SECURITY_OLD_WI_INTRO_SNIPPET,
+            GKE_WORKLOAD_SECURITY_NEW_WI_INTRO_SNIPPET,
+        ),
+    ],
+    "gke-platform-security": [
+        (
+            GKE_PLATFORM_SECURITY_OLD_SCOPE_SNIPPET,
+            GKE_PLATFORM_SECURITY_NEW_SCOPE_SNIPPET,
+        ),
+        (
+            GKE_PLATFORM_SECURITY_OLD_WI_IAM_SNIPPET,
+            GKE_PLATFORM_SECURITY_NEW_WI_IAM_SNIPPET,
+        ),
+    ],
+    "gke-productionize": [
+        (
+            GKE_PRODUCTIONIZE_OLD_SECURITY_ACTION_SNIPPET,
+            GKE_PRODUCTIONIZE_NEW_SECURITY_ACTION_SNIPPET,
         ),
     ],
     "gke-manifest-generation": [
@@ -356,13 +428,15 @@ FOOTER_MARKER = "<!-- kube-agents: local addition (auto-injected by sync-upstrea
 # Upstream skills are copied over verbatim on every sync (the local dir is rmtree'd first), so any
 # local edits are wiped. Anything this repository needs an upstream skill to say therefore belongs
 # here rather than in the skill file: these footers are the single source of truth for it and are
-# re-appended after each sync. Four things need saying today — the GKE create/lifecycle skills must
+# re-appended after each sync. Five things need saying today — the GKE create/lifecycle skills must
 # keep pointing at this repo's Cluster Agent profile lifecycle, which upstream knows nothing about
 # (see agents/platform/skills/cluster-agent-lifecycle/SKILL.md for the mechanics they reference),
 # gke-networking must not present `--dns-endpoint` as unconditionally safe, gke-upgrades must
 # point at this repo's fleet-upgrade-verification skill for executed per-member version checks, and
 # gke-batch-hpc and gke-workload-scaling must preflight GPU/TPU and large-shape requests into
-# capacity-obtainability.
+# capacity-obtainability, and gke-platform-security must carry the secrets-encryption and Security
+# Posture procedures its description and the gke-basics and gke-workload-security routing notes
+# send those flags to, which its body upstream does not have.
 SKILL_FOOTERS = {
     "gke-cluster-creation": f"""{FOOTER_MARKER}
 
@@ -471,6 +545,39 @@ When the checklist's deprecated-API item comes up, the same skill's `api_depreca
 the linked GitOps repositories' manifests for apiVersions the target removes and reports each with
 its replacement and the commit it read; run it with `--target-version` and the version report's
 `--output`. It reads Git only: point at GKE Deprecation Insights for live client usage.
+""",
+    "gke-platform-security": f"""{FOOTER_MARKER}
+
+## Application-layer secrets encryption and Security Posture
+
+The description and the gke-basics and gke-workload-security routing notes send these two flags
+here.
+
+**Secrets encryption (`--database-encryption-key`)** envelope-encrypts Secrets in etcd with a
+Cloud KMS key. The key must be in the cluster's location, and the GKE service agent needs
+`roles/cloudkms.cryptoKeyEncrypterDecrypter` on it before the cluster can use it:
+
+```bash
+gcloud kms keys add-iam-policy-binding KEY_NAME \\
+  --keyring KEYRING_NAME --location LOCATION --project KMS_PROJECT_ID \\
+  --member serviceAccount:service-PROJECT_NUMBER@container-engine-robot.iam.gserviceaccount.com \\
+  --role roles/cloudkms.cryptoKeyEncrypterDecrypter
+
+gcloud container clusters update CLUSTER_NAME --location LOCATION \\
+  --database-encryption-key projects/KMS_PROJECT_ID/locations/LOCATION/keyRings/KEYRING_NAME/cryptoKeys/KEY_NAME
+
+# ENCRYPTED once the update completes
+gcloud container clusters describe CLUSTER_NAME --location LOCATION \\
+  --format="value(databaseEncryption.state)"
+```
+
+**Security Posture (`--security-posture`)** turns on configuration auditing (`standard`) and,
+with `--workload-vulnerability-scanning`, OS vulnerability scanning of running workloads:
+
+```bash
+gcloud container clusters update CLUSTER_NAME --location LOCATION \\
+  --security-posture=standard --workload-vulnerability-scanning=standard
+```
 """,
     "gke-batch-hpc": f"""{FOOTER_MARKER}
 

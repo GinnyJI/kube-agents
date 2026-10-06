@@ -21,8 +21,8 @@ metadata:
 > **Routing Note:** For Workload Identity KSA/GSA bindings, open `gke-workload-identity/SKILL.md`. For cluster-level security flags (`--database-encryption-key`, `--security-posture`, RBAC, Shielded Nodes, Binary Authorization), open `gke-platform-security/SKILL.md`.
 
 This skill provides workflows and best practices for securing GKE workloads. It
-covers security auditing, Identity and Access Management (Workload Identity),
-Network Security (Network Policies), and Node Security.
+covers security auditing, Network Security (Network Policies), and Node Security.
+For Workload Identity setup, use the `gke-workload-identity` skill.
 
 ## Workflows
 
@@ -50,11 +50,13 @@ script.
 scripts/audit_cluster.sh <cluster-name> <region> <project-id>
 ```
 
-### 2. Configure Workload Identity
+### 2. Configure Workload Identity (legacy GSA impersonation)
 
-Workload Identity allows Kubernetes Service Accounts (KSAs) to impersonate
-Google Service Accounts (GSAs). This is the recommended method for workloads to
-access Google Cloud APIs.
+Load the `gke-workload-identity` skill first: it prefers binding IAM roles to
+the Kubernetes Service Account (KSA) principal directly and treats the
+impersonation setup below, where a KSA impersonates a Google Service Account
+(GSA), as the legacy path. Use these steps only when that skill calls for
+impersonation.
 
 **Steps:**
 
