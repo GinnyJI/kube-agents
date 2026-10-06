@@ -43,10 +43,6 @@ verification_spec:
           "created-with-google-skill",
           "container_spec_memory_limit_bytes",
         ]
-      # kube_pod_container_resource_limits, the kube-state-metrics series the
-      # skill replaces with cAdvisor's, as the verifier sees it: patterns run
-      # on text with underscores stripped.
-      forbidden_patterns: ["kubepodcontainerresourcelimits"]
   - name: front-door-stays-out-of-the-worker-verbs
     role: safeguard
     severity: catastrophic

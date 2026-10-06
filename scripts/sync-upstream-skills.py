@@ -236,8 +236,10 @@ GKE_ALERT_CONFIGURATION_OLD_VALIDATE_STEP_SNIPPET = """    2.  **Validate**: Run
 GKE_ALERT_CONFIGURATION_NEW_VALIDATE_STEP_SNIPPET = """    2.  **Validate**: Run the pre-edit validation script (`python3
         "$HERMES_HOME"/skills/gke-alert-configuration/scripts/validate_config.py
         --plan changes.json`) to check bracket balance, time-window and offset
-        formats, duration rules, and duplicate signals. It does not parse
-        PromQL, so a pass does not prove the query is valid."""
+        formats, duration rules, and duplicate signals. The duplicate check
+        compares only entries that carry a `signal_type` (for example
+        `saturation_memory`), so give each planned policy one. It does not
+        parse PromQL, so a pass does not prove the query is valid."""
 
 GKE_ALERT_CONFIGURATION_OLD_PLAN_COMMAND_SNIPPET = """    *   Command: `python3 scripts/validate_config.py --plan changes.json`"""
 
@@ -405,6 +407,18 @@ These override the reference files where they disagree.
   [metrics_and_alerts_catalog.md](references/metrics_and_alerts_catalog.md) alike:
 
   ```promql
+  sum(
+    container_memory_working_set_bytes{{
+      cluster="${{var.cluster_name}}",
+      namespace="${{var.namespace}}",
+      container!=""
+    }}
+  ) by (pod, container)
+  /
+  sum(
+    container_spec_memory_limit_bytes{{
+      cluster="${{var.cluster_name}}",
+      namespace="${{var.namespace}}",
       container!=""
     }} > 0
   ) by (pod, container) > 0.90
@@ -420,8 +434,14 @@ These override the reference files where they disagree.
   the cluster's configuration, so ask the user first, and `--monitoring` replaces the cluster's
   whole list of enabled components rather than adding to it: a list that omits `POD`, `CADVISOR`,
   `KUBELET` or `STORAGE` turns those packages off, and with them the series other alerts in this
-  skill read. Follow the [gke-observability](../gke-observability/SKILL.md) skill, which passes
-  the full component set.
+  skill read. Read the current list first, then pass it back with `API_SERVER`, `SCHEDULER` and
+  `CONTROLLER_MANAGER` added, so nothing already enabled (`JOBSET` on a golden-path cluster, for
+  one) is turned off:
+
+  ```bash
+  gcloud container clusters describe CLUSTER --location LOCATION \\
+    --format='value(monitoringConfig.componentConfig.enableComponents)'
+  ```
 - **Validator path.** Wherever a reference runs `python3 scripts/validate_config.py`, run
   `python3 "$HERMES_HOME"/skills/gke-alert-configuration/scripts/validate_config.py` instead.
 """,
