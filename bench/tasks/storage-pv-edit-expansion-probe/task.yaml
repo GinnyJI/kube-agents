@@ -1,0 +1,109 @@
+# Skill-guidance probe for gke-storage-troubleshooting, new with the
+# google/skills sync: a teammate grew a volume by editing the
+# PersistentVolume's spec.capacity directly. kubectl now reports the new
+# size on the PV and the PVC, but df -h in the container still shows the old
+# one, because editing the PV never calls the CSI driver: the Compute Engine
+# disk was not resized. The skill's fix, from GKE's storage troubleshooting
+# page:
+#   "1. Keep the modified PersistentVolume object as it is.
+#    2. Edit the PersistentVolumeClaim and set spec.resources.requests.storage
+#       to a value higher than the current PersistentVolume size."
+# Setting the PVC request to the size already written on the PV (the folk
+# fix, and the team's plan in the prompt) does nothing: the PVC's
+# status.capacity already reads 200Gi, so the external-resizer sees no
+# request above capacity and never calls ControllerExpandVolume. Reverting
+# the PV, or running resize2fs / xfs_growfs against a 100Gi device, does not
+# grow anything either. No skill on main before the sync covered expansion
+# through an edited PV.
+#
+# The forbidden patterns match the wrong fix only as a manifest or command
+# line (a requests: storage: 200Gi block, a kubectl patch body, a filesystem
+# grow command at the start of a line), so prose quoting the plan to reject
+# it does not match. A PV manifest quoting capacity: storage: 200Gi does not
+# match either: the pattern needs requests: before storage.
+#
+# Planted defect required: none. deployer: noop, no fixture, no cluster read.
+#
+# Isolation class: read-only (no cluster touched at all).
+# Tier: nightly (hack/eval/nightly-cases.txt).
+id: storage-pv-edit-expansion-probe
+name: A volume grown by editing the PV is fixed by raising the PVC above the PV size
+
+owner: GinnyJI
+domain: cluster-debugging
+
+prompt: >-
+  On my GKE cluster prod-1, the Postgres StatefulSet Pod pg-0 uses the PVC
+  data-pg-0 (StorageClass standard-rwo, allowVolumeExpansion: true),
+  originally 100Gi. To get more space, a teammate ran kubectl edit on the
+  bound PersistentVolume and changed spec.capacity.storage from 100Gi to
+  200Gi. kubectl get pv and kubectl get pvc now both show 200Gi, but df -h
+  inside pg-0 still shows the data filesystem at about 98G. Our plan is to
+  set the PVC's spec.resources.requests.storage to 200Gi so it matches the
+  PV, then restart pg-0. Will that grow the filesystem? Give the exact change
+  you would make instead, if any. Load the relevant installed gke-* skill and answer from it before
+  searching documentation. Do not apply anything.
+expected_output: >-
+  No. Editing the PV only changed the API object; the Compute Engine disk
+  was never resized, and with the PVC's capacity already reading 200Gi a
+  request of 200Gi triggers no expansion. Keep the modified PV as it is and
+  set the PVC's spec.resources.requests.storage to a value higher than the
+  PV's 200Gi (for example 250Gi); the CSI driver then resizes the disk and
+  the kubelet grows the filesystem. Verify with df -h in the Pod.
+infrastructure:
+  deployer: noop
+validated: false
+
+verification_spec:
+  - name: the-pvc-request-goes-above-the-edited-pv
+    role: objective
+    mode: assert
+    check:
+      type: report_contains
+      required_phrases: ["requests.storage"]
+      # The reason: the new request has to exceed what the PV already says.
+      any_of_phrases:
+        [
+          "higher than",
+          "greater than",
+          "larger than",
+          "bigger than",
+          "more than 200",
+          "above 200",
+          "exceeds",
+        ]
+      forbidden_patterns:
+        [
+          # The PVC request set to the size already on the PV, as YAML.
+          "(^|\\n)\\s*(-\\s*)?requests:\\s*(\\n\\s*|\\{\\s*)storage:\\s*[\"']?200gi\\b",
+          # The same, as a kubectl patch body.
+          "\"requests\":\\s*\\{\\s*\"storage\":\\s*\"200gi\"",
+          # Reverting the PV.
+          "(^|\\n)\\s*(\\$\\s*)?kubectl patch (pv|persistentvolume)\\s+\\S+.*\"storage\":\\s*\"100gi\"",
+          # Growing the filesystem by hand on a disk that was never resized.
+          "(^|\\n)\\s*(\\$\\s*)?(kubectl exec\\s.*--\\s+)?(sudo\\s+)?(resize2fs|xfs_growfs)\\s+/",
+        ]
+  - name: front-door-stays-out-of-the-worker-verbs
+    role: safeguard
+    severity: catastrophic
+    check:
+      type: none
+      checks:
+        # Same delegation-boundary safeguard as knowledge-grounding-sources-probe.
+        - type: tool_called
+          tool_names: ["kanban_complete", "kanban_block", "kanban_heartbeat"]
+  - name: no-worker-spends-an-answer-query-call
+    role: safeguard
+    severity: catastrophic
+    check:
+      type: none
+      checks:
+        # The quota-limited Developer Knowledge tool the personas forbid; see
+        # knowledge-grounding-sources-probe for why both spellings.
+        - type: tool_called
+          scope: workers
+          tool_names:
+            [
+              "mcp__developer_knowledge__answer_query",
+              "mcp_developer_knowledge_answer_query",
+            ]

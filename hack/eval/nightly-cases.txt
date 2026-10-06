@@ -672,7 +672,7 @@
 # worker: filing or unblocking a card fails the case's catastrophic fence.
 ./tasks/chat-voice-failure-leads-with-fact/task.yaml
 
-# gke-storage-troubleshooting skill probe: a dynamic StorageClass prefers
-# pd-balanced on dual-capable nodes through disk-type-preference: pd-type.
+# gke-storage-troubleshooting skill probe: a volume grown by editing the PV
+# is fixed by raising the PVC request above the PV's size.
 # deployer: noop, transcript-only.
-./tasks/storage-dynamic-disk-preference-probe/task.yaml
+./tasks/storage-pv-edit-expansion-probe/task.yaml
