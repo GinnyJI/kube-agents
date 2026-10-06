@@ -382,12 +382,13 @@ class ApplySubstitutionsTest(unittest.TestCase):
             sync.apply_substitutions(str(d), "gke-basics")
         self.assertIn("cli-reference.md", str(caught.exception))
 
-    def test_repo_skills_carry_every_file_substitution(self):
+    def test_repo_skills_carry_every_substitution(self):
         # The in-tree copy already reads as the next sync leaves it, so the hand edit and the
-        # registry entry cannot drift apart.
+        # registry entry cannot drift apart. substituted_files() is the one list of what a sync
+        # rewrites for a skill, so every registry apply_substitutions reads is one this loop reads.
         skills_dir = Path(__file__).resolve().parent.parent / "agents" / "platform" / "skills"
-        for skill_name, files in sync.SKILL_FILE_SUBSTITUTIONS.items():
-            for relpath, pairs in files.items():
+        for skill_name in sorted(set(sync.SKILL_SUBSTITUTIONS) | set(sync.SKILL_FILE_SUBSTITUTIONS)):
+            for relpath, pairs in sync.substituted_files(skill_name):
                 content = (skills_dir / skill_name / relpath).read_text(encoding="utf-8")
                 for target, replacement in pairs:
                     with self.subTest(skill=skill_name, file=relpath, target=target[:40]):
