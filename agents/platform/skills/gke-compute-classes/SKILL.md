@@ -23,7 +23,7 @@ Guidance on configuring, optimizing, and troubleshooting GKE ComputeClasses.
 --------------------------------------------------------------------------------
 
 ## CRITICAL RULES
-- **CODE-FIRST VERIFICATION (OPEN-SOURCE CODEBASE):** GKE Cluster Autoscaler and ComputeClasses are open-sourced at `https://github.com/GoogleCloudPlatform/cluster-autoscaler`. When user questions challenge or explore undocumented/subtle behaviors, or when guidance is not explicitly established in this skill, **VERIFY BEHAVIOR DIRECTLY IN CODE** (via local repository clone or fetching raw files from GitHub). Check `git log -S` and `git blame` to identify the exact commit and date when behavior changed, and communicate version/date ranges to the user (e.g. *"This behavior changed on July 20, 2026 in upstream commit 129daa3756..."*). See `references/compute-class-code-index.md` for exact package and symbol mappings.
+- **CODE-FIRST VERIFICATION (OPEN-SOURCE CODEBASE):** GKE Cluster Autoscaler and ComputeClasses are open-sourced at `https://github.com/GoogleCloudPlatform/cluster-autoscaler`. When user questions challenge or explore undocumented/subtle behaviors, or when guidance is not explicitly established in this skill, **SAY SO AND POINT AT THE CODE**: this install's terminal cannot clone or fetch from GitHub, so do not try. Name the package or symbol from the code index for the user to check with `git log -S` and `git blame`, and do not state a version or date range you have not read. See `references/compute-class-code-index.md` for exact package and symbol mappings.
 
 ## Engagement Rules: Generalized First, Refine Later
 
@@ -384,3 +384,12 @@ spec:
     `assets/capacity-quota-spillover.yaml` (scale-up cap with fallback spillover).
 
 
+<!-- kube-agents: local addition (auto-injected by sync-upstream-skills.py) -->
+
+## Node upgrades during a PDB-guarded canary
+
+The "Node auto-upgrades" row in `references/compute-class-lifecycle.md` overstates the protection:
+GKE's node-upgrade drain respects a PodDisruptionBudget for up to one hour, then evicts the pods
+anyway. A node auto-upgrade can therefore still evict the green pods of a multi-hour canary guarded
+by a `maxUnavailable: 0` PDB. When the rollout must not be disrupted, run it outside the cluster's
+maintenance window or add a maintenance exclusion for its duration (see `gke-upgrades`).
