@@ -165,6 +165,7 @@ ADDED_AFTER_THE_MOVE = [
     "oobe-first-run-audits",  # the oobe job's first-run audits stage
     "chat-fanout-fleet-restarts-rows",  # a fleet question fanned out one titled card per cluster
     "compute-class-stockout-cooldown-scope-probe",  # the gke-compute-classes skill sync
+    "compute-class-canary-active-migration-pdb-probe",  # the gke-compute-classes skill sync
 ]
 
 # Admitted after the split, each by a pull request that cited the record
