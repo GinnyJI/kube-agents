@@ -5,7 +5,7 @@ description: >-
   Kubernetes Engine (GKE) applications and namespaces. Covers running security
   audits (`audit_cluster.sh`), enforcing Network Policies (default-deny and Dataplane
   V2 logging), isolating high-risk pods inside GKE Sandbox (`gVisor`), enforcing Pod
-  Security Standards (`restricted` labeling) and pod securityContext, and mounting Secret Manager secrets via
+  Security Standards (`restricted` labeling), and mounting Secret Manager secrets via
   CSI (`SecretProviderClass`). Use when auditing workload security posture, isolating
   namespaces, applying pod security standards, or
   configuring network policies and secret volume mounts. Don't use for Workload Identity (use gke-workload-identity), cluster-wide

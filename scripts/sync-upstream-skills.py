@@ -268,6 +268,14 @@ impersonation setup below, where a KSA impersonates a Google Service Account
 impersonation.
 """
 
+# Upstream's description claims pod securityContext coverage the body does not carry; container
+# security contexts are gke-manifest-generation's, and the description is what the agent routes on.
+GKE_WORKLOAD_SECURITY_OLD_DESCRIPTION_SNIPPET = (
+    "Security Standards (`restricted` labeling) and pod securityContext, and mounting"
+)
+
+GKE_WORKLOAD_SECURITY_NEW_DESCRIPTION_SNIPPET = "Security Standards (`restricted` labeling), and mounting"
+
 GKE_PLATFORM_SECURITY_OLD_SCOPE_SNIPPET = """controls (such as Workload Identity Service Account bindings,
 SecretProviderClass volume mounts, Network Policies, and Pod Security
 Standards), refer to the `gke-workload-security` skill."""
@@ -308,6 +316,10 @@ SKILL_SUBSTITUTIONS = {
         (
             GKE_WORKLOAD_SECURITY_OLD_WI_INTRO_SNIPPET,
             GKE_WORKLOAD_SECURITY_NEW_WI_INTRO_SNIPPET,
+        ),
+        (
+            GKE_WORKLOAD_SECURITY_OLD_DESCRIPTION_SNIPPET,
+            GKE_WORKLOAD_SECURITY_NEW_DESCRIPTION_SNIPPET,
         ),
     ],
     "gke-platform-security": [
