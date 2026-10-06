@@ -220,6 +220,56 @@ GKE_MANIFEST_GENERATION_NEW_DEVELOPER_KNOWLEDGE_SNIPPET = """        -   **`sear
             project, shared by every agent in the install, and it reads the
             same corpus as `search_documents`. Never retry its `429`."""
 
+# gke-alert-configuration's validator steps upstream call `scripts/validate_config.py` by a path
+# relative to the skill directory, which neither the profile directory nor a card workspace is, and
+# the directory command passes `--cluster-var "${var.cluster_name}"`, which bash rejects as a bad
+# substitution and the script never reads. The Validate step also credits the script with checking
+# PromQL grammar, which it does not parse. The replacements call it through "$HERMES_HOME"/skills/,
+# as submit-suggestion does, drop the flag, say what the script checks, and tell the agent to check
+# label scoping itself. kube_node_status_condition and kube_pod_container_status_restarts_total come
+# from kube-state-metrics, so the tier rule files them as Tier 2 rather than Tier 1.
+GKE_ALERT_CONFIGURATION_OLD_VALIDATE_STEP_SNIPPET = """    2.  **Validate**: Run the pre-edit validation script (`python3
+        scripts/validate_config.py --plan changes.json`) to verify PromQL
+        grammar, lookback windows, duration rules, and ensure no duplicate
+        signals exist."""
+
+GKE_ALERT_CONFIGURATION_NEW_VALIDATE_STEP_SNIPPET = """    2.  **Validate**: Run the pre-edit validation script (`python3
+        "$HERMES_HOME"/skills/gke-alert-configuration/scripts/validate_config.py
+        --plan changes.json`) to check bracket balance, time-window and offset
+        formats, duration rules, and duplicate signals. It does not parse
+        PromQL, so a pass does not prove the query is valid."""
+
+GKE_ALERT_CONFIGURATION_OLD_PLAN_COMMAND_SNIPPET = """    *   Command: `python3 scripts/validate_config.py --plan changes.json`"""
+
+GKE_ALERT_CONFIGURATION_NEW_PLAN_COMMAND_SNIPPET = """    *   Command: `python3
+        "$HERMES_HOME"/skills/gke-alert-configuration/scripts/validate_config.py
+        --plan changes.json`"""
+
+GKE_ALERT_CONFIGURATION_OLD_DIRECTORY_COMMAND_SNIPPET = """    *   Command: `python3 scripts/validate_config.py --directory [TARGET_TF_DIR]
+        --cluster-var "${var.cluster_name}"`
+    *   Single file validation: `python3 scripts/validate_config.py --file
+        [PATH_TO_TF_FILE]`"""
+
+GKE_ALERT_CONFIGURATION_NEW_DIRECTORY_COMMAND_SNIPPET = """    *   Command: `python3
+        "$HERMES_HOME"/skills/gke-alert-configuration/scripts/validate_config.py
+        --directory [TARGET_TF_DIR]`
+    *   Single file validation: `python3
+        "$HERMES_HOME"/skills/gke-alert-configuration/scripts/validate_config.py
+        --file [PATH_TO_TF_FILE]`
+    *   The script does not check label scoping or hardcoded cluster names:
+        confirm every query carries `cluster="${var.cluster_name}"` and
+        `namespace="${var.namespace}"` matchers yourself."""
+
+GKE_ALERT_CONFIGURATION_OLD_KSM_TIER_SNIPPET = """            `container_*`, kubelet volume stats, kubelet node conditions, and
+            control-plane metrics; see"""
+
+GKE_ALERT_CONFIGURATION_NEW_KSM_TIER_SNIPPET = """            `container_*`, kubelet volume stats, native
+            `kubernetes.io/node/status_condition`, and control-plane metrics.
+            `kube_node_status_condition` and
+            `kube_pod_container_status_restarts_total` are kube-state-metrics
+            series and therefore Tier 2, whatever the tier columns in the
+            references say; see"""
+
 # In-place content substitutions applied to freshly-synced skills to correct upstream defects
 # where an appended footer is insufficient (e.g. multi-step remediation commands), to route to a
 # skill only this repository has from a passage upstream cannot know about, or to drop a name this
@@ -262,6 +312,24 @@ SKILL_SUBSTITUTIONS = {
             GKE_WORKLOAD_TROUBLESHOOTING_NEW_STEP5_SUBMIT_SNIPPET,
         ),
     ],
+    "gke-alert-configuration": [
+        (
+            GKE_ALERT_CONFIGURATION_OLD_VALIDATE_STEP_SNIPPET,
+            GKE_ALERT_CONFIGURATION_NEW_VALIDATE_STEP_SNIPPET,
+        ),
+        (
+            GKE_ALERT_CONFIGURATION_OLD_PLAN_COMMAND_SNIPPET,
+            GKE_ALERT_CONFIGURATION_NEW_PLAN_COMMAND_SNIPPET,
+        ),
+        (
+            GKE_ALERT_CONFIGURATION_OLD_DIRECTORY_COMMAND_SNIPPET,
+            GKE_ALERT_CONFIGURATION_NEW_DIRECTORY_COMMAND_SNIPPET,
+        ),
+        (
+            GKE_ALERT_CONFIGURATION_OLD_KSM_TIER_SNIPPET,
+            GKE_ALERT_CONFIGURATION_NEW_KSM_TIER_SNIPPET,
+        ),
+    ],
 }
 
 # Marker that identifies our auto-injected footer, so injection is idempotent and
@@ -271,13 +339,14 @@ FOOTER_MARKER = "<!-- kube-agents: local addition (auto-injected by sync-upstrea
 # Upstream skills are copied over verbatim on every sync (the local dir is rmtree'd first), so any
 # local edits are wiped. Anything this repository needs an upstream skill to say therefore belongs
 # here rather than in the skill file: these footers are the single source of truth for it and are
-# re-appended after each sync. Four things need saying today — the GKE create/lifecycle skills must
+# re-appended after each sync. Five things need saying today — the GKE create/lifecycle skills must
 # keep pointing at this repo's Cluster Agent profile lifecycle, which upstream knows nothing about
 # (see agents/platform/skills/cluster-agent-lifecycle/SKILL.md for the mechanics they reference),
 # gke-networking must not present `--dns-endpoint` as unconditionally safe, gke-upgrades must
-# point at this repo's fleet-upgrade-verification skill for executed per-member version checks, and
+# point at this repo's fleet-upgrade-verification skill for executed per-member version checks,
 # gke-batch-hpc and gke-workload-scaling must preflight GPU/TPU and large-shape requests into
-# capacity-obtainability.
+# capacity-obtainability, and gke-alert-configuration must correct three defects in its reference
+# files, which no substitution registry reaches yet.
 SKILL_FOOTERS = {
     "gke-cluster-creation": f"""{FOOTER_MARKER}
 
@@ -324,6 +393,37 @@ capacity obtainability advice (`gcloud beta compute advice capacity`) for the re
 shape and count across the region's zones, for the Spot and Flex-Start provisioning models the
 advice API accepts. That skill owns the rules for what to probe and how to report it; follow it
 rather than restating them here.
+""",
+    "gke-alert-configuration": f"""{FOOTER_MARKER}
+
+## Corrections to the references
+
+These override the reference files where they disagree.
+
+- **Memory-saturation query.** Filter the limit series with `> 0` before dividing, in
+  [promql_queries.md](references/promql_queries.md) and
+  [metrics_and_alerts_catalog.md](references/metrics_and_alerts_catalog.md) alike:
+
+  ```promql
+      container!=""
+    }} > 0
+  ) by (pod, container) > 0.90
+  ```
+
+  cAdvisor reports `container_spec_memory_limit_bytes` as `0` for a container with no limit, so
+  the unfiltered ratio is `+Inf` and the alert fires for as long as that container runs. With the
+  filter, unlimited containers return no series, which is what the references' warning about
+  missing limits describes.
+- **Enabling control-plane metrics.** Do not run the `gcloud container clusters update
+  --monitoring=SYSTEM,API_SERVER,CONTROLLER_MANAGER,SCHEDULER` command in
+  [gke_configuration_prerequisites.md](references/gke_configuration_prerequisites.md). It changes
+  the cluster's configuration, so ask the user first, and `--monitoring` replaces the cluster's
+  whole list of enabled components rather than adding to it: a list that omits `POD`, `CADVISOR`,
+  `KUBELET` or `STORAGE` turns those packages off, and with them the series other alerts in this
+  skill read. Follow the [gke-observability](../gke-observability/SKILL.md) skill, which passes
+  the full component set.
+- **Validator path.** Wherever a reference runs `python3 scripts/validate_config.py`, run
+  `python3 "$HERMES_HOME"/skills/gke-alert-configuration/scripts/validate_config.py` instead.
 """,
     "gke-networking": f"""{FOOTER_MARKER}
 

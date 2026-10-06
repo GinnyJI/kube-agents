@@ -88,8 +88,12 @@ metrics while minimizing alert noise.
         every response where you generate or recommend an alerting policy, you
         **must explicitly state its classification tier and cost impact**:
         *   **Tier 1 native or standard metric** (GKE built-in metrics, cAdvisor
-            `container_*`, kubelet volume stats, kubelet node conditions, and
-            control-plane metrics; see
+            `container_*`, kubelet volume stats, native
+            `kubernetes.io/node/status_condition`, and control-plane metrics.
+            `kube_node_status_condition` and
+            `kube_pod_container_status_restarts_total` are kube-state-metrics
+            series and therefore Tier 2, whatever the tier columns in the
+            references say; see
             [metrics_and_alerts_catalog.md](references/metrics_and_alerts_catalog.md)):
             State that it is a **Tier 1 native or standard metric with zero KSM
             cost surcharge**.
@@ -104,9 +108,10 @@ metrics while minimizing alert noise.
         proposed policy resource names, PromQL expressions, grouping labels, and
         durations.
     2.  **Validate**: Run the pre-edit validation script (`python3
-        scripts/validate_config.py --plan changes.json`) to verify PromQL
-        grammar, lookback windows, duration rules, and ensure no duplicate
-        signals exist.
+        "$HERMES_HOME"/skills/gke-alert-configuration/scripts/validate_config.py
+        --plan changes.json`) to check bracket balance, time-window and offset
+        formats, duration rules, and duplicate signals. It does not parse
+        PromQL, so a pass does not prove the query is valid.
     3.  **Execute**: After the plan passes validation, apply or merge changes
         in-place into the target Terraform configuration (`alerts.tf`).
     4.  *Note*: When answering questions or providing Terraform snippets
@@ -320,13 +325,20 @@ configurations when working in a repository:
 
 *   **Pre-Edit Plan Validation**: Draft a `changes.json` plan specifying the
     proposed policies, queries, and durations, and validate it before editing:
-    *   Command: `python3 scripts/validate_config.py --plan changes.json`
+    *   Command: `python3
+        "$HERMES_HOME"/skills/gke-alert-configuration/scripts/validate_config.py
+        --plan changes.json`
 *   **Post-Edit and Directory Validation**: Scan existing or modified Terraform
     files in a directory to ensure no duplicates or syntax errors exist:
-    *   Command: `python3 scripts/validate_config.py --directory [TARGET_TF_DIR]
-        --cluster-var "${var.cluster_name}"`
-    *   Single file validation: `python3 scripts/validate_config.py --file
-        [PATH_TO_TF_FILE]`
+    *   Command: `python3
+        "$HERMES_HOME"/skills/gke-alert-configuration/scripts/validate_config.py
+        --directory [TARGET_TF_DIR]`
+    *   Single file validation: `python3
+        "$HERMES_HOME"/skills/gke-alert-configuration/scripts/validate_config.py
+        --file [PATH_TO_TF_FILE]`
+    *   The script does not check label scoping or hardcoded cluster names:
+        confirm every query carries `cluster="${var.cluster_name}"` and
+        `namespace="${var.namespace}"` matchers yourself.
 
 --------------------------------------------------------------------------------
 
@@ -403,3 +415,34 @@ configurations when working in a repository:
 *   [Google Cloud Monitoring Pricing](https://docs.cloud.google.com/monitoring/pricing.md.txt)
 *   [Google SRE Workbook: Alerting on SLOs](https://sre.google/workbook/alerting-on-slos/)
 *   [Awesome Prometheus Alerts Repository](https://github.com/samber/awesome-prometheus-alerts)
+
+<!-- kube-agents: local addition (auto-injected by sync-upstream-skills.py) -->
+
+## Corrections to the references
+
+These override the reference files where they disagree.
+
+- **Memory-saturation query.** Filter the limit series with `> 0` before dividing, in
+  [promql_queries.md](references/promql_queries.md) and
+  [metrics_and_alerts_catalog.md](references/metrics_and_alerts_catalog.md) alike:
+
+  ```promql
+      container!=""
+    } > 0
+  ) by (pod, container) > 0.90
+  ```
+
+  cAdvisor reports `container_spec_memory_limit_bytes` as `0` for a container with no limit, so
+  the unfiltered ratio is `+Inf` and the alert fires for as long as that container runs. With the
+  filter, unlimited containers return no series, which is what the references' warning about
+  missing limits describes.
+- **Enabling control-plane metrics.** Do not run the `gcloud container clusters update
+  --monitoring=SYSTEM,API_SERVER,CONTROLLER_MANAGER,SCHEDULER` command in
+  [gke_configuration_prerequisites.md](references/gke_configuration_prerequisites.md). It changes
+  the cluster's configuration, so ask the user first, and `--monitoring` replaces the cluster's
+  whole list of enabled components rather than adding to it: a list that omits `POD`, `CADVISOR`,
+  `KUBELET` or `STORAGE` turns those packages off, and with them the series other alerts in this
+  skill read. Follow the [gke-observability](../gke-observability/SKILL.md) skill, which passes
+  the full component set.
+- **Validator path.** Wherever a reference runs `python3 scripts/validate_config.py`, run
+  `python3 "$HERMES_HOME"/skills/gke-alert-configuration/scripts/validate_config.py` instead.
