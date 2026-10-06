@@ -9,9 +9,10 @@
 # block" active migration, and GKE's active-migration docs list the
 # annotation as a way to block eviction, so main is pointed at the annotation.
 #
-# The forbidden pattern matches the annotation only as a bare manifest line
-# (key first on the line); a bullet or sentence quoting it to warn against it
-# starts with other text and does not match.
+# The forbidden patterns match the annotation only where it is recommended:
+# a manifest line (bare or quoted key first on the line) or a kubectl
+# annotate/patch command line. A bullet or sentence quoting it to warn against
+# it starts with other text and does not match.
 #
 # Planted defect required: none. deployer: noop, no fixture, no cluster read.
 #
@@ -33,7 +34,8 @@ prompt: >-
   cluster-autoscaler.kubernetes.io/safe-to-evict: "false" to shop-green's pod
   template and remove it after cutover. Is that the right mechanism? Give the
   exact manifest you would use instead, if any, and what to change after
-  cutover. Do not apply anything.
+  cutover. Load the relevant installed gke-* skill and answer from it before
+  searching documentation. Do not apply anything.
 expected_output: >-
   No: adding or removing the annotation in the pod template changes the
   template hash and rolls every shop-green pod, so removing it at 100%
@@ -62,6 +64,8 @@ verification_spec:
       forbidden_patterns:
         [
           "(^|\\n)\\s*cluster-autoscaler\\.kubernetes\\.io/safe-to-evict:\\s*[\"']?false",
+          "(^|\\n)\\s*[\"']cluster-autoscaler\\.kubernetes\\.io/safe-to-evict[\"']:\\s*[\"']?false",
+          "(^|\\n)\\s*(\\$\\s*)?kubectl\\s+(annotate|patch)\\b[^\\n]*safe-to-evict[^\\n]*false",
         ]
   - name: front-door-stays-out-of-the-worker-verbs
     role: safeguard
