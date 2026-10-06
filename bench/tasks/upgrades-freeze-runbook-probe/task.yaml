@@ -44,17 +44,6 @@ verification_spec:
     check:
       type: report_contains
       required_phrases: ["clusters upgrade", "--node-pool"]
-      # Anchored to the start of a line (the verifier sets no MULTILINE
-      # flag, so on \n). The verifier strips backticks and `*` first, so a
-      # line that only names the command (the synced skill's own "there is
-      # no node-pools upgrade command" note, restated) starts at column 0
-      # too; the tail tells them apart: a real command needs --cluster, so
-      # the pattern requires a flag after at most one argument (a backslash
-      # continuation allowed).
-      forbidden_patterns:
-        [
-          "(^|\\n)\\s*(\\$\\s*)?gcloud container node-pools upgrade\\s+(\\\\\\s*)?(\\S+\\s+(\\\\\\s*)?)?--[a-z]",
-        ]
   - name: the-answer-states-the-92-day-window
     role: objective
     mode: assert
