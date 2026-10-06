@@ -428,7 +428,7 @@ FOOTER_MARKER = "<!-- kube-agents: local addition (auto-injected by sync-upstrea
 # Upstream skills are copied over verbatim on every sync (the local dir is rmtree'd first), so any
 # local edits are wiped. Anything this repository needs an upstream skill to say therefore belongs
 # here rather than in the skill file: these footers are the single source of truth for it and are
-# re-appended after each sync. Five things need saying today — the GKE create/lifecycle skills must
+# re-appended after each sync. Today: the GKE create/lifecycle skills must
 # keep pointing at this repo's Cluster Agent profile lifecycle, which upstream knows nothing about
 # (see agents/platform/skills/cluster-agent-lifecycle/SKILL.md for the mechanics they reference),
 # gke-networking must not present `--dns-endpoint` as unconditionally safe, gke-upgrades must
@@ -554,17 +554,18 @@ The description and the gke-basics and gke-workload-security routing notes send 
 here.
 
 **Secrets encryption (`--database-encryption-key`)** envelope-encrypts Secrets in etcd with a
-Cloud KMS key. The key must be in the cluster's location, and the GKE service agent needs
-`roles/cloudkms.cryptoKeyEncrypterDecrypter` on it before the cluster can use it:
+Cloud KMS key. The key must be in the cluster's region (`KMS_LOCATION`; for a zonal cluster, the
+region that contains its zone, since Cloud KMS has no zonal locations), and the GKE service agent
+needs `roles/cloudkms.cryptoKeyEncrypterDecrypter` on it before the cluster can use it:
 
 ```bash
 gcloud kms keys add-iam-policy-binding KEY_NAME \\
-  --keyring KEYRING_NAME --location LOCATION --project KMS_PROJECT_ID \\
+  --keyring KEYRING_NAME --location KMS_LOCATION --project KMS_PROJECT_ID \\
   --member serviceAccount:service-PROJECT_NUMBER@container-engine-robot.iam.gserviceaccount.com \\
   --role roles/cloudkms.cryptoKeyEncrypterDecrypter
 
 gcloud container clusters update CLUSTER_NAME --location LOCATION \\
-  --database-encryption-key projects/KMS_PROJECT_ID/locations/LOCATION/keyRings/KEYRING_NAME/cryptoKeys/KEY_NAME
+  --database-encryption-key projects/KMS_PROJECT_ID/locations/KMS_LOCATION/keyRings/KEYRING_NAME/cryptoKeys/KEY_NAME
 
 # ENCRYPTED once the update completes
 gcloud container clusters describe CLUSTER_NAME --location LOCATION \\
