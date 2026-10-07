@@ -400,9 +400,11 @@ rather than restating them here.
 
 ## Corrections to the references
 
-These override the reference files where they disagree.
+These override the reference files, and the shorthand formulas in the sections above, where
+they disagree.
 
-- **Memory-saturation query.** Filter the limit series with `> 0` before dividing, in
+- **Memory-saturation query.** Filter the limit series with `> 0` before dividing wherever this
+  skill gives the ratio: the Critical Rules and Technical Considerations above,
   [promql_queries.md](references/promql_queries.md) and
   [metrics_and_alerts_catalog.md](references/metrics_and_alerts_catalog.md) alike:
 
@@ -434,13 +436,47 @@ These override the reference files where they disagree.
   the cluster's configuration, so ask the user first, and `--monitoring` replaces the cluster's
   whole list of enabled components rather than adding to it: a list that omits `POD`, `CADVISOR`,
   `KUBELET` or `STORAGE` turns those packages off, and with them the series other alerts in this
-  skill read. Read the current list first, then pass it back with `API_SERVER`, `SCHEDULER` and
-  `CONTROLLER_MANAGER` added, so nothing already enabled (`JOBSET` on a golden-path cluster, for
-  one) is turned off:
+  skill read. Read the current list first:
 
   ```bash
   gcloud container clusters describe CLUSTER --location LOCATION \\
     --format='value(monitoringConfig.componentConfig.enableComponents)'
+  ```
+
+  It prints API names separated by `;`, and `--monitoring` takes a comma list in the flag's own
+  spelling: map `SYSTEM_COMPONENTS` to `SYSTEM` and `APISERVER` to `API_SERVER` (the other names
+  are spelled the same), join them with `,`, and add `API_SERVER`, `SCHEDULER` and
+  `CONTROLLER_MANAGER` where absent, so nothing already enabled (`JOBSET` on a golden-path
+  cluster, for one) is turned off. For a cluster that printed
+  `SYSTEM_COMPONENTS;STORAGE;POD;CADVISOR;KUBELET;JOBSET`, the update to propose is:
+
+  ```bash
+  gcloud container clusters update CLUSTER --location LOCATION \\
+    --monitoring=SYSTEM,STORAGE,POD,CADVISOR,KUBELET,JOBSET,API_SERVER,SCHEDULER,CONTROLLER_MANAGER
+  ```
+- **Cluster-health queries.** `kube_node_status_condition` and
+  `kube_pod_container_status_restarts_total` are kube-state-metrics series (Tier 2) wherever this
+  skill uses them, including the references' "Non-KSM Alternative" sections. The Tier 1 natives
+  for Node NotReady and crash-looping containers, in PromQL, carry `cluster_name` and
+  `namespace_name` labels rather than `cluster` and `namespace`:
+
+  ```promql
+  kubernetes_io:node_status_condition{{
+    monitored_resource="k8s_node",
+    cluster_name="${{var.cluster_name}}",
+    condition="Ready",
+    status="False"
+  }} > 0
+  ```
+
+  ```promql
+  increase(
+    kubernetes_io:container_restart_count{{
+      monitored_resource="k8s_container",
+      cluster_name="${{var.cluster_name}}",
+      namespace_name="${{var.namespace}}"
+    }}[10m]
+  ) > 3
   ```
 - **Validator path.** Wherever a reference runs `python3 scripts/validate_config.py`, run
   `python3 "$HERMES_HOME"/skills/gke-alert-configuration/scripts/validate_config.py` instead.
