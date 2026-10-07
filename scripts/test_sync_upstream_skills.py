@@ -353,6 +353,8 @@ class ApplySubstitutionsTest(unittest.TestCase):
         for target, replacement in sync.SKILL_SUBSTITUTIONS["gke-backup-dr"]:
             self.assertNotIn(target, content)
             self.assertEqual(content.count(replacement), 1, replacement)
+        # A second copy of the flag would leave the agent choosing between two restore policies.
+        self.assertEqual(content.count("--volume-data-restore-policy"), 1)
 
     def test_skill_without_substitutions_is_untouched(self):
         # The guard must not turn "nothing configured" into a failure.
