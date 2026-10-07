@@ -44,11 +44,12 @@ verification_spec:
     check:
       type: report_contains
       required_phrases: ["clusters upgrade", "--node-pool"]
-      # The two on one command: `--node-pool` after `clusters upgrade CLUSTER`
-      # with no `--master` between them, so a control-plane command and a
-      # stray `--node-pool-soak-duration` elsewhere do not add up to a pass.
+      # The two on one command: `--node-pool` anywhere after `clusters upgrade`
+      # (gcloud takes flags on either side of the cluster name), with no
+      # `--master` and no next `gcloud` between them, so a control-plane
+      # command and a stray `--node-pool-soak-duration` do not add up to a pass.
       any_of_patterns:
-        ["clusters upgrade \\S+ (?:(?!--master)\\S+ ){0,8}?--node-pool(?=[ =])"]
+        ["clusters upgrade (?:(?!--master|gcloud )\\S+ )*?--node-pool(?=[ =])"]
   - name: the-answer-states-the-92-day-window
     role: objective
     mode: assert
