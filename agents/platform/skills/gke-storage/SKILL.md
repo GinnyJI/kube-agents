@@ -127,8 +127,12 @@ spec:
         bucketName: <BUCKET_NAME>
 ```
 
-> Requires Workload Identity for the pod's service account to have
-> `storage.objectViewer` on the bucket.
+> Requires the Cloud Storage FUSE CSI driver add-on. Autopilot enables it; on Standard, check
+> `gcloud container clusters describe CLUSTER --location LOCATION --format="value(addonsConfig.gcsFuseCsiDriverConfig.enabled)"`.
+> Enabling it (`gcloud container clusters update CLUSTER --location LOCATION --update-addons GcsFuseCsiDriver=ENABLED`)
+> changes the cluster, so ask first. Without it the Pod stays in ContainerCreating with
+> `driver name gcsfuse.csi.storage.gke.io not found`. Also requires Workload Identity for the
+> pod's service account to have `storage.objectViewer` on the bucket.
 
 ## Volume Expansion
 
