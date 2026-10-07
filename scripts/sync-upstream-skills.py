@@ -226,6 +226,17 @@ with `--gateway-api=standard`)."""
 GKE_SERVICE_NETWORKING_NEW_GATEWAY_DEFAULT_SNIPPET = """**Prerequisites**: Gateway API must be enabled on the cluster (always enabled on
 Autopilot; on Standard clusters enable it with `--gateway-api=standard`)."""
 
+# Its health-check firewall rule names no network, so gcloud creates it on `default`, and on the
+# Shared VPC the passage is written for the rule belongs in the host project. Backends then stay
+# UNHEALTHY while the agent reports the fix in place.
+GKE_SERVICE_NETWORKING_OLD_HEALTH_CHECK_FIREWALL_SNIPPET = """    gcloud compute firewall-rules create allow-lb-health-checks \\
+      --allow tcp:SERVING_PORT \\"""
+
+GKE_SERVICE_NETWORKING_NEW_HEALTH_CHECK_FIREWALL_SNIPPET = """    # NETWORK is the cluster's VPC; on Shared VPC, add --project HOST_PROJECT_ID.
+    gcloud compute firewall-rules create allow-lb-health-checks \\
+      --network NETWORK \\
+      --allow tcp:SERVING_PORT \\"""
+
 # In-place content substitutions applied to freshly-synced skills to correct upstream defects
 # where an appended footer is insufficient (e.g. multi-step remediation commands), to route to a
 # skill only this repository has from a passage upstream cannot know about, or to drop a name this
@@ -272,6 +283,10 @@ SKILL_SUBSTITUTIONS = {
         (
             GKE_SERVICE_NETWORKING_OLD_GATEWAY_DEFAULT_SNIPPET,
             GKE_SERVICE_NETWORKING_NEW_GATEWAY_DEFAULT_SNIPPET,
+        ),
+        (
+            GKE_SERVICE_NETWORKING_OLD_HEALTH_CHECK_FIREWALL_SNIPPET,
+            GKE_SERVICE_NETWORKING_NEW_HEALTH_CHECK_FIREWALL_SNIPPET,
         ),
     ],
 }

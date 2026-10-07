@@ -225,7 +225,9 @@ liveness/readiness probes — it runs from outside the cluster, so a Pod can be
     hand-managed firewalls it can be missing:
 
     ```bash
+    # NETWORK is the cluster's VPC; on Shared VPC, add --project HOST_PROJECT_ID.
     gcloud compute firewall-rules create allow-lb-health-checks \
+      --network NETWORK \
       --allow tcp:SERVING_PORT \
       --source-ranges 130.211.0.0/22,35.191.0.0/16 \
       --target-tags NODE_TAG
