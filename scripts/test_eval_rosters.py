@@ -165,6 +165,7 @@ ADDED_AFTER_THE_MOVE = [
     "oobe-first-run-audits",  # the oobe job's first-run audits stage
     "chat-fanout-fleet-restarts-rows",  # a fleet question fanned out one titled card per cluster
     "workload-identity-signed-url-probe",  # the gke-basics and gke-workload-identity skill sync
+    "platform-security-secrets-encryption-currentstate-probe",  # the gke-basics/security skills sync
 ]
 
 # Admitted after the split, each by a pull request that cited the record

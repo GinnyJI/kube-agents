@@ -714,3 +714,8 @@
 # iam.gke.io/return-principal-id-as-email KSA annotation. deployer: noop,
 # transcript-only.
 ./tasks/workload-identity-signed-url-probe/task.yaml
+# gke-platform-security skill probe: Secrets encryption is verified on
+# databaseEncryption.currentState (CURRENT_STATE_ENCRYPTED), the observed
+# state, not on databaseEncryption.state, the requested one.
+# deployer: noop, transcript-only.
+./tasks/platform-security-secrets-encryption-currentstate-probe/task.yaml
