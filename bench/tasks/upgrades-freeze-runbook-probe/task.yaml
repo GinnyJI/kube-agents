@@ -44,12 +44,14 @@ verification_spec:
     check:
       type: report_contains
       required_phrases: ["clusters upgrade", "--node-pool"]
-      # The two on one command: `--node-pool` anywhere after `clusters upgrade`
-      # (gcloud takes flags on either side of the cluster name), with no
-      # `--master` and no next `gcloud` between them, so a control-plane
-      # command and a stray `--node-pool-soak-duration` do not add up to a pass.
+      # `--node-pool` after a `gcloud ... container clusters upgrade` head
+      # (gcloud takes flags on either side of the cluster name), walking only
+      # argument-shaped tokens with no `--master` and no next `gcloud` between
+      # them. Prose that names `clusters upgrade` without the `gcloud` head, or
+      # a sentence whose words carry `:`, `;` or `,`, does not open or extend the
+      # match; bench/tests/test_upgrades_freeze_runbook_pattern.py pins both.
       any_of_patterns:
-        ["clusters upgrade (?:(?!--master|gcloud )\\S+ )*?--node-pool(?=[ =])"]
+        - 'gcloud (?:\S+ )?container clusters upgrade (?:(?!--master|gcloud )[-\w./=$<>{}"''\\]+ )*?--node-pool(?=[ =])'
   - name: the-answer-states-the-92-day-window
     role: objective
     mode: assert
