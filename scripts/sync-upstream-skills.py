@@ -261,11 +261,13 @@ access Google Cloud APIs.
 
 GKE_WORKLOAD_SECURITY_NEW_WI_INTRO_SNIPPET = """### 2. Configure Workload Identity (legacy GSA impersonation)
 
-Load the `gke-workload-identity` skill first: it prefers binding IAM roles to
-the Kubernetes Service Account (KSA) principal directly and treats the
-impersonation setup below, where a KSA impersonates a Google Service Account
-(GSA), as the legacy path. Use these steps only when that skill calls for
-impersonation.
+Load the `gke-workload-identity` skill first: binding IAM roles to the
+Kubernetes Service Account (KSA) principal directly is the current default, and
+that skill diagnoses both models. Use the impersonation setup below, where a KSA
+impersonates a Google Service Account (GSA), only when a GSA must be the
+identity: an existing GSA already holds the roles the workload needs, or the
+Google Cloud API it calls does not accept Workload Identity Federation
+principals (the GKE documentation lists those limitations).
 """
 
 # Upstream's description claims pod securityContext coverage the body does not carry; container
