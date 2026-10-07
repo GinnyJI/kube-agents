@@ -164,7 +164,6 @@ ADDED_AFTER_THE_MOVE = [
     "upgrades-zonal-control-plane-outage-warned",  # upgrade-failure catalogue entry 11, the first scenario case
     "oobe-first-run-audits",  # the oobe job's first-run audits stage
     "chat-fanout-fleet-restarts-rows",  # a fleet question fanned out one titled card per cluster
-    "workload-identity-signed-url-probe",  # the gke-basics and gke-workload-identity skill sync
     "platform-security-secrets-encryption-currentstate-probe",  # the gke-basics/security skills sync
     "upgrades-freeze-runbook-probe",  # the gke-upgrades skill sync
 ]
@@ -218,6 +217,7 @@ HELD_OUT_IN_PRESUBMIT = [
     ("pdb-remediation-pr", "compliance-rbac-overgrant"),  # #2016 step 2, seat opened 2026-09-28; the roster line is step 4
 ]
 
+
 def with_insertions(base, insertions):
     """``base`` with each (case, follows) pair inserted after its predecessor."""
     out = list(base)
@@ -225,7 +225,9 @@ def with_insertions(base, insertions):
         out.insert(out.index(follows) + 1, case)
     return out
 
+
 OLD_SCRIPT_LINE = 'export BOOTSTRAP_ADMITTED="${BOOTSTRAP_ADMITTED:-a-probe,b-probe,c-probe}"\n'
+
 
 class ParserTest(unittest.TestCase):
     def test_comments_blank_lines_and_whitespace_are_dropped(self):
@@ -268,6 +270,7 @@ class ParserTest(unittest.TestCase):
         self.assertTrue(eval_rosters.presubmit_cases())
         self.assertTrue(eval_rosters.nightly_cases())
         self.assertTrue(eval_rosters.blocking_roster())
+
 
 class SplitLostNothingTest(unittest.TestCase):
     def test_the_presubmit_file_is_the_tasks_array_at_the_split_plus_the_promoted_less_the_held_out(self):
@@ -340,6 +343,7 @@ class SplitLostNothingTest(unittest.TestCase):
         result = subprocess.run(["bash", "-n", str(SCRIPT)], capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+
 # The inject lane's exclusions at their introduction (#2039, 2026-09-25): the
 # one presubmit case whose premise needs the chat front door. An edit to the
 # file edits this set in the same pull request, for the reason the sets above
@@ -382,6 +386,7 @@ INJECT_LANE_EXCLUDED_TIER = {
     "first-install-hello-done": "nightly",
     "chat-fanout-fleet-restarts-rows": "nightly",
 }
+
 
 class InjectLaneExclusionsTest(unittest.TestCase):
     """hack/eval/inject-lane-exclusions.txt: the lane-level list, checked here.
@@ -457,6 +462,7 @@ class InjectLaneExclusionsTest(unittest.TestCase):
                 else:
                     self.assertIn(case, eval_rosters.nightly_cases())
 
+
 # The inject lane's safeguards at their introduction (#2079, 2026-09-28): the
 # one entry every case on the lane carries beside its own. An edit to the
 # file edits this set in the same pull request, for the reason the sets
@@ -485,6 +491,7 @@ INJECT_LANE_REQUESTING = [
 ]
 LANE_SAFEGUARD_LEAF_TYPE = "github_writes"
 
+
 def _leaf_types(node) -> list[str]:
     if isinstance(node, dict):
         children = [node.get(k) for k in ("checks", "check") if node.get(k) is not None]
@@ -494,6 +501,7 @@ def _leaf_types(node) -> list[str]:
     if isinstance(node, list):
         return [t for item in node for t in _leaf_types(item)]
     return []
+
 
 class InjectLaneSafeguardsTest(unittest.TestCase):
     """hack/eval/inject-lane-safeguards.yaml: the entries hack/ci-eval-pr.sh
@@ -601,6 +609,7 @@ class InjectLaneSafeguardsTest(unittest.TestCase):
         # exactly as before this file existed.
         self.assertTrue(self.lane_cases())
         self.assertNotIn("agent-kanban-smoke", self.lane_cases())
+
 
 if __name__ == "__main__":
     unittest.main()

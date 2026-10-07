@@ -179,7 +179,7 @@ Produce step-by-step runbooks with actual `gcloud` and `kubectl` commands. See `
 
 When diagnosing a \"stuck\" upgrade, consider if it was paused by a maintenance window:
 
-- **Silent Pause Behavior:** If a maintenance window closes before an upgrade (auto or manual) completes, GKE intentionally pauses the rollout to prevent disruption outside allowed times.
+- **Silent Pause Behavior:** If a maintenance window closes before a surge upgrade (auto or manual) completes, GKE intentionally pauses the rollout to prevent disruption outside allowed times. A blue-green node-pool upgrade does not pause: it continues past the window to completion (`references/troubleshooting.md` §11), so for a blue-green pool the window is not the cause and the rest of this section does not apply.
 - **Mixed-Version State:** The cluster is left in a stable mixed-version state (some nodes upgraded, some not). You MUST explicitly state that this is a supported and safe intended outcome.
 - **Resumption:** The upgrade will automatically resume when the next maintenance window opens.
 - **Mitigation for immediate completion:** If the user wants to complete the upgrade immediately, you MUST suggest **temporarily widening the maintenance window** to include the current time (e.g., using `gcloud container clusters update ... --maintenance-window-start ... --maintenance-window-duration ...`). Do not suggest re-triggering the manual upgrade or bypassing the window.

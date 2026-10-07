@@ -307,6 +307,22 @@ GKE_UPGRADES_OLD_PDB_RESTORE_RULE_SNIPPET = "make re-applying them a numbered st
 
 GKE_UPGRADES_NEW_PDB_RESTORE_RULE_SNIPPET = "make restoring them by patch a numbered step"
 
+# gke-upgrades' SKILL.md says every upgrade pauses when its maintenance window closes, while the
+# troubleshooting reference it routes stuck upgrades to says blue-green node-pool upgrades run past
+# the window to completion. The replacement scopes the pause to surge upgrades.
+GKE_UPGRADES_OLD_WINDOW_PAUSE_SNIPPET = (
+    "If a maintenance window closes before an upgrade (auto or manual) completes, GKE intentionally"
+    " pauses the rollout to prevent disruption outside allowed times."
+)
+
+GKE_UPGRADES_NEW_WINDOW_PAUSE_SNIPPET = (
+    "If a maintenance window closes before a surge upgrade (auto or manual) completes, GKE"
+    " intentionally pauses the rollout to prevent disruption outside allowed times. A blue-green"
+    " node-pool upgrade does not pause: it continues past the window to completion"
+    " (`references/troubleshooting.md` §11), so for a blue-green pool the window is not the cause"
+    " and the rest of this section does not apply."
+)
+
 # In-place content substitutions applied to freshly-synced skills to correct upstream defects
 # where an appended footer is insufficient (e.g. multi-step remediation commands), to route to a
 # skill only this repository has from a passage upstream cannot know about, or to drop a name this
@@ -389,6 +405,10 @@ SKILL_SUBSTITUTIONS = {
         (
             GKE_UPGRADES_OLD_PDB_RESTORE_RULE_SNIPPET,
             GKE_UPGRADES_NEW_PDB_RESTORE_RULE_SNIPPET,
+        ),
+        (
+            GKE_UPGRADES_OLD_WINDOW_PAUSE_SNIPPET,
+            GKE_UPGRADES_NEW_WINDOW_PAUSE_SNIPPET,
         ),
     ],
 }
