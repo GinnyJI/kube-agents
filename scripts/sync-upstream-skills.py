@@ -244,6 +244,19 @@ GKE_BACKUP_DR_NEW_RESTORE_POLICY_SNIPPET = """  --all-namespaces \\
   --cluster-resource-conflict-policy=use-existing-version \\
 """
 
+# gke-backup-dr's Notes upstream tell the agent to run `gcloud components install beta`. Here gcloud
+# runs through the credential proxy, which refuses component installs, and the image's
+# apt-installed gcloud already carries the beta track. The replacement says so.
+GKE_BACKUP_DR_OLD_BETA_COMPONENT_SNIPPET = """-   The `backup-restore` command group requires the `gcloud beta` component
+    (`gcloud components install beta`).
+"""
+
+GKE_BACKUP_DR_NEW_BETA_COMPONENT_SNIPPET = """-   The `backup-restore` command group is on the `gcloud beta` track
+    (`gcloud beta container backup-restore ...`), which this image's gcloud
+    already includes. Do not run `gcloud components install`: the credential
+    proxy refuses it.
+"""
+
 # In-place content substitutions applied to freshly-synced skills to correct upstream defects
 # where an appended footer is insufficient (e.g. multi-step remediation commands), to route to a
 # skill only this repository has from a passage upstream cannot know about, or to drop a name this
@@ -294,6 +307,10 @@ SKILL_SUBSTITUTIONS = {
         (
             GKE_BACKUP_DR_OLD_RESTORE_POLICY_SNIPPET,
             GKE_BACKUP_DR_NEW_RESTORE_POLICY_SNIPPET,
+        ),
+        (
+            GKE_BACKUP_DR_OLD_BETA_COMPONENT_SNIPPET,
+            GKE_BACKUP_DR_NEW_BETA_COMPONENT_SNIPPET,
         ),
     ],
 }

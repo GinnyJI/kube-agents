@@ -65,8 +65,10 @@ gcloud beta container backup-restore restores describe {restore_name} \
 
 Notes:
 
--   The `backup-restore` command group requires the `gcloud beta` component
-    (`gcloud components install beta`).
+-   The `backup-restore` command group is on the `gcloud beta` track
+    (`gcloud beta container backup-restore ...`), which this image's gcloud
+    already includes. Do not run `gcloud components install`: the credential
+    proxy refuses it.
 -   `--cluster` requires the full resource path
     `projects/{project_id}/locations/{location}/clusters/{cluster_name}` (or
     `projects/{project_id}/zones/{zone}/clusters/{cluster_name}` for zonal
