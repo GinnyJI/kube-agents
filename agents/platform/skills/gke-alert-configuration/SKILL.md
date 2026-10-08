@@ -341,6 +341,9 @@ configurations when working in a repository:
     *   The script does not check label scoping or hardcoded cluster names:
         confirm every query carries `cluster="${var.cluster_name}"` and
         `namespace="${var.namespace}"` matchers yourself.
+    *   `"policies_scanned_count": 0` means the scan read no `.tf` file, not
+        that the files are clean: pass the absolute path of the directory
+        that directly holds them (the scan does not recurse) and rerun.
 
 --------------------------------------------------------------------------------
 
@@ -500,18 +503,22 @@ they disagree.
       monitored_resource="k8s_container",
       cluster_name="${var.cluster_name}",
       namespace_name="${var.namespace}"
-    }[10m]
+    }[15m]
   ) > 3
   ```
 - **Traffic-drop queries.** `default 0` is MetricsQL, not PromQL, and Cloud Monitoring rejects
   it when the policy is applied, although `validate_config.py` passes it. Wherever this skill or
   its references write `... default 0`, use `absent(...)` on the same selector for an outage, or
   `(sum(rate(...[5m])) or vector(0)) == 0` for a single total with no grouping labels.
-- **Duplicate targets.** The `--directory` and `--file` scans infer each policy's signal from
-  keywords in its name (`error`, `latency`, `cpu` and others) and report a "Duplicate Target
-  Error" when two policies share one. The fast- and slow-burn policies this skill prescribes for
-  one SLO, each with its own severity, trip it. When every policy a duplicate names is a burn-rate
-  tier of the same SLO, say so to the user and keep them separate rather than merging them; treat
-  any other duplicate as real.
+- **Duplicate targets.** Each validator mode checks duplicates differently. `--directory` infers
+  a policy's signal from keywords in its resource or display name (`error`, `latency`, `memory`
+  and others, first match wins) and reports a "Duplicate Target Error" when two policies share
+  one. `--plan` compares the `signal_type` strings written in the plan. `--file` checks no
+  duplicates at all, so a pass from it says nothing about them. A duplicate is real only when two
+  policies query the same metric on the same resource and labels. Policies that read different
+  series (API-server and API-client errors, P95 and P99 latency) or are burn-rate tiers of one SLO
+  with their own severities stay separate: tell the user why, and do not merge them. In a plan,
+  give each such policy its own `signal_type` (for example `errors_fast_burn` and
+  `errors_slow_burn`), which `--plan` accepts.
 - **Validator path.** Wherever a reference runs `python3 scripts/validate_config.py`, run
   `python3 "$HERMES_HOME"/skills/gke-alert-configuration/scripts/validate_config.py` instead.
