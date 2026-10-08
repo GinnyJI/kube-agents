@@ -446,11 +446,12 @@ FOOTER_MARKER = "<!-- kube-agents: local addition (auto-injected by sync-upstrea
 # keep pointing at this repo's Cluster Agent profile lifecycle, which upstream knows nothing about
 # (see agents/platform/skills/cluster-agent-lifecycle/SKILL.md for the mechanics they reference),
 # gke-networking must not present `--dns-endpoint` as unconditionally safe, gke-upgrades must
-# point at this repo's fleet-upgrade-verification skill for executed per-member version checks, and
+# point at this repo's fleet-upgrade-verification skill for executed per-member version checks,
 # gke-batch-hpc and gke-workload-scaling must preflight GPU/TPU and large-shape requests into
-# capacity-obtainability, and gke-platform-security must carry the secrets-encryption and Security
+# capacity-obtainability, gke-platform-security must carry the secrets-encryption and Security
 # Posture procedures its description and the gke-basics and gke-workload-security routing notes
-# send those flags to, which its body upstream does not have.
+# send those flags to, which its body upstream does not have, and gke-workload-identity must say
+# which of its IAM and exec reads this install's command gate withholds.
 SKILL_FOOTERS = {
     "gke-cluster-creation": f"""{FOOTER_MARKER}
 
