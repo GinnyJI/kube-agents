@@ -259,11 +259,18 @@ GKE_ALERT_CONFIGURATION_NEW_DIRECTORY_COMMAND_SNIPPET = """    *   Command: `pyt
         "$HERMES_HOME"/skills/gke-alert-configuration/scripts/validate_config.py
         --file [PATH_TO_TF_FILE]`
     *   The script does not check label scoping or hardcoded cluster names:
-        confirm every query carries `cluster="${var.cluster_name}"` and
-        `namespace="${var.namespace}"` matchers yourself.
-    *   `"policies_scanned_count": 0` means the scan read no `.tf` file, not
-        that the files are clean: pass the absolute path of the directory
-        that directly holds them (the scan does not recurse) and rerun."""
+        confirm each query's scope yourself. cAdvisor, kube-state-metrics
+        and application series take `cluster="${var.cluster_name}"` and
+        `namespace="${var.namespace}"`; `kubernetes_io:` series take
+        `cluster_name` and `namespace_name`; node-level series take no
+        namespace matcher.
+    *   `"policies_scanned_count"` counts the alert-policy blocks the scan
+        extracted, and `0` never means the files are clean. No `.tf` file
+        sits directly in that path (pass the absolute path of the directory
+        that holds them; the scan does not recurse), the files hold no
+        alert policy, or the scanner could not parse a policy block (an odd
+        `"` in a comment, for one). If the right path still reports `0` for
+        a file that holds a policy, check that policy by eye."""
 
 GKE_ALERT_CONFIGURATION_OLD_KSM_TIER_SNIPPET = """            `container_*`, kubelet volume stats, kubelet node conditions, and
             control-plane metrics; see"""
@@ -475,6 +482,11 @@ they disagree.
   `status!="True"` and not `status="False"`: a node whose kubelet stops posting status goes to
   `Unknown`, which is the usual `NotReady`.
 
+  The references' Tier 2 allowlist template keeps no `kube_node_*` series. When a
+  kube-state-metrics node alert is approved, add `kube_node_status_condition` and every other
+  `kube_node_*` series the policy reads to its `keep` regex, or the relabel drops them at scrape
+  and the alert never fires.
+
   ```promql
   increase(
     kubernetes_io:container_restart_count{{
@@ -486,8 +498,24 @@ they disagree.
   ```
 - **Traffic-drop queries.** `default 0` is MetricsQL, not PromQL, and Cloud Monitoring rejects
   it when the policy is applied, although `validate_config.py` passes it. Wherever this skill or
-  its references write `... default 0`, use `absent(...)` on the same selector for an outage, or
-  `(sum(rate(...[5m])) or vector(0)) == 0` for a single total with no grouping labels.
+  its references write `... default 0`, rewrite it by shape. For the per-service week-over-week
+  comparison the references recommend, alert on services that had traffic a week ago and have
+  none now:
+
+  ```promql
+  (
+    sum(rate(http_requests_total{{cluster="${{var.cluster_name}}", namespace="${{var.namespace}}"}}[5m] offset 1w)) by (service) > 1
+  )
+  unless
+  (
+    sum(rate(http_requests_total{{cluster="${{var.cluster_name}}", namespace="${{var.namespace}}"}}[5m])) by (service) > 0
+  )
+  ```
+
+  For a single total with no grouping labels, use `(sum(rate(...[5m])) or vector(0)) == 0`; for a
+  whole series disappearing, `absent(...)` on the same selector. Neither joins a `by (service)`
+  baseline: the `vector(0)` and `absent()` samples carry no `service` label, so an `and` against
+  one never matches.
 - **Duplicate targets.** Each validator mode checks duplicates differently. `--directory` infers
   a policy's signal from keywords in its resource or display name (`error`, `latency`, `memory`
   and others, first match wins) and reports a "Duplicate Target Error" when two policies share
