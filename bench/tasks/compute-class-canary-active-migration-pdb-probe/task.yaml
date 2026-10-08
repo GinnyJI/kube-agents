@@ -13,7 +13,14 @@
 # skill text supplies: a PodDisruptionBudget manifest whose matchLabels block
 # selects version: green, and a budget that refuses every eviction
 # (maxUnavailable: 0, or the equivalent minAvailable: 100% the lifecycle
-# reference names). Why the annotation is wrong is left to the judge, which
+# reference names). Both patterns start at kind: PodDisruptionBudget and stay
+# inside that YAML document (no ---, code fence or second kind: in between),
+# so a Deployment's own selector or rollingUpdate.maxUnavailable: 0 cannot
+# satisfy them. The selector gap also stops at the next PDB field, so
+# metadata.labels or a selector naming only app: shop does not count; a flow
+# mapping ({app: shop, version: green}) does. Normalization collapses
+# indentation, which is why the bound is the sibling keys and not the indent.
+# bench/tests/test_compute_class_canary_pdb_patterns.py pins both directions. Why the annotation is wrong is left to the judge, which
 # reads expected_output: a regex over the flat report cannot tell "rolls every
 # pod" said of the annotation from the same words said of the PDB or negated.
 # Nor does any check forbid the annotation, for the same reason: a recommended
@@ -60,17 +67,19 @@ verification_spec:
     mode: assert
     check:
       type: report_contains
-      required_phrases: ["kind: PodDisruptionBudget"]
-      # The selector itself, not the prompt's "version: green" restated.
-      # Label values are often quoted in generated manifests.
-      any_of_patterns: ["matchlabels:[^{}]{0,120}version:\\s*[\"']?green"]
+      any_of_patterns:
+        [
+          "kind:\\s*poddisruptionbudget(?:(?!\\n\\s*(?:---|```)|kind:)[\\s\\S]){0,800}?matchlabels:(?:(?!\\n\\s*(?:---|```|maxunavailable:|minavailable:|unhealthypodevictionpolicy:|metadata:|spec:|matchexpressions:|labels:)|kind:)[\\s\\S]){0,120}?version:\\s*[\"']?green",
+        ]
   - name: the-pdb-refuses-every-eviction
     role: objective
     mode: assert
     check:
       type: report_contains
       any_of_patterns:
-        ["maxunavailable:\\s*[\"']?0\\b", "minavailable:\\s*[\"']?100%"]
+        [
+          "kind:\\s*poddisruptionbudget(?:(?!\\n\\s*(?:---|```)|kind:)[\\s\\S]){0,800}?(?:maxunavailable:\\s*[\"']?0\\b|minavailable:\\s*[\"']?100%)",
+        ]
   - name: front-door-stays-out-of-the-worker-verbs
     role: safeguard
     severity: catastrophic

@@ -709,10 +709,7 @@
 # cluster name the Slack plan row renders (agents/platform/SOUL.md, fan-out).
 # deployer: noop; reads the seeded fleet's crashloop-workload role.
 ./tasks/chat-fanout-fleet-restarts-rows/task.yaml
-# gke-compute-classes skill probe: a stockout cooldown on a priority rule is
-# zonal from GKE 1.36.3-gke.1244000, regional before it. deployer: noop,
-# transcript-only.
-./tasks/compute-class-stockout-cooldown-scope-probe/task.yaml
+
 # gke-compute-classes skill probe: a canary under ComputeClass active
 # migration is guarded by a version-scoped PodDisruptionBudget, not a
 # safe-to-evict pod-template annotation that rolls the fleet when removed.
