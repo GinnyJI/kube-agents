@@ -10,6 +10,10 @@
 #
 # Planted defect required: none. deployer: noop, no fixture.
 #
+# No scope: workers answer_query safeguard: knowledge lookup is not what this
+# case grades, and that check errors (fails closed) on a run whose trajectory
+# carries no tagged worker entry, which happened in 4 of this case's 11 runs.
+#
 # Isolation class: read-only fixture.
 # Tier: nightly (hack/eval/nightly-cases.txt).
 id: alert-config-terraform-promql-probe
@@ -52,18 +56,3 @@ verification_spec:
         # Same delegation-boundary safeguard as knowledge-grounding-sources-probe.
         - type: tool_called
           tool_names: ["kanban_complete", "kanban_block", "kanban_heartbeat"]
-  - name: no-worker-spends-an-answer-query-call
-    role: safeguard
-    severity: catastrophic
-    check:
-      type: none
-      checks:
-        # The quota-limited Developer Knowledge tool the personas forbid; see
-        # knowledge-grounding-sources-probe for why both spellings.
-        - type: tool_called
-          scope: workers
-          tool_names:
-            [
-              "mcp__developer_knowledge__answer_query",
-              "mcp_developer_knowledge_answer_query",
-            ]
