@@ -52,16 +52,19 @@ verification_spec:
         ]
       # --encryption-key, not as the tail of --backup-encryption-key.
       any_of_patterns: ["(?<![\\w-])--encryption-key"]
-      # The flags main's skill gave, which gcloud rejects, used as flags: with
-      # `=`, or with at most one value before a continuation or the line's end.
-      # A bounded match lets --enable-gke-backup-plan and a sentence that rules
-      # one out ("not --retention-days.") through.
+      # The flags main's skill gave, which gcloud rejects, used in a command: on
+      # a line that starts with gcloud (after an optional list marker), or on a
+      # continuation line that starts with the flag. Command context, not line
+      # shape, so a one-line command with more flags after it counts, and a
+      # bullet, table cell or sentence that names the flag does not, nor does
+      # --enable-gke-backup-plan. Normalization collapses leading indentation.
+      # bench/tests/test_backup_dr_cmek_forbidden_patterns.py pins both sides.
       forbidden_patterns:
         [
-          "(?m)(?<![\\w-])--enable-gke-backup(=|(\\s+[^\\s\\\\]+)?\\s*(\\\\|$))",
-          "(?m)(?<![\\w-])--retention-days(=|(\\s+[^\\s\\\\]+)?\\s*(\\\\|$))",
-          "(?m)(?<![\\w-])--included-namespaces(=|(\\s+[^\\s\\\\]+)?\\s*(\\\\|$))",
-          "(?m)(?<![\\w-])--backup-encryption-key(=|(\\s+[^\\s\\\\]+)?\\s*(\\\\|$))",
+          "(?m)^\\s*(?:(?:(?:[-*]|\\d+[.)])\\s*)?gcloud\\s[^\\n]*?\\s)?--enable-gke-backup(?![\\w-])",
+          "(?m)^\\s*(?:(?:(?:[-*]|\\d+[.)])\\s*)?gcloud\\s[^\\n]*?\\s)?--retention-days(?![\\w-])",
+          "(?m)^\\s*(?:(?:(?:[-*]|\\d+[.)])\\s*)?gcloud\\s[^\\n]*?\\s)?--included-namespaces(?![\\w-])",
+          "(?m)^\\s*(?:(?:(?:[-*]|\\d+[.)])\\s*)?gcloud\\s[^\\n]*?\\s)?--backup-encryption-key(?![\\w-])",
         ]
   - name: front-door-stays-out-of-the-worker-verbs
     role: safeguard
