@@ -293,27 +293,39 @@ class ApplySubstitutionsTest(unittest.TestCase):
         self.assertFalse(sync.apply_substitutions(str(d), "gke-basics"))
         self.assertEqual(text.count(sync.GKE_BASICS_NEW_CREDENTIALS_SNIPPET), 1)
 
+    def _basics_body_with_credentials_as(self, credentials):
+        # Every other gke-basics target verbatim, so a backstop failure can only come from
+        # what `credentials` does to the credentials pair.
+        others = [
+            target
+            for target, _ in sync.SKILL_SUBSTITUTIONS["gke-basics"]
+            if target != sync.GKE_BASICS_OLD_CREDENTIALS_SNIPPET
+        ]
+        return "\n\n".join([credentials] + others) + "\n"
+
     def test_drifted_target_is_a_backstop_failure(self):
         # Unreachable while verify_local_corrections runs first, but it is what keeps the
         # uncorrected upstream text out of the tree if the clone and the copy ever disagree.
-        drifted = sync.GKE_BASICS_OLD_CREDENTIALS_SNIPPET.replace("   * Always", "   - Always")
-        d = self._skill_dir(body=drifted + "\n")
+        drifted = self._basics_body_with_credentials_as(
+            sync.GKE_BASICS_OLD_CREDENTIALS_SNIPPET.replace("   * Always", "   - Always")
+        )
+        d = self._skill_dir(body=drifted)
+        write_registered_files(d, "gke-basics")
         with self.assertRaises(sync.LocalCorrectionLost) as caught:
             sync.apply_substitutions(str(d), "gke-basics")
         self.assertIn("gke-basics/SKILL.md", str(caught.exception))
+        self.assertIn("target snippet not found", str(caught.exception))
         # Left as upstream wrote it rather than half-rewritten.
-        self.assertEqual(self._read(d), drifted + "\n")
+        self.assertEqual(self._read(d), drifted)
 
     def test_target_and_replacement_both_present_is_a_backstop_failure(self):
         # Skipping on the replacement alone would leave the target in the tree and return
         # False, so the sync would report success over the uncorrected passage.
-        body = (
-            sync.GKE_BASICS_OLD_CREDENTIALS_SNIPPET
-            + "\n\n"
-            + sync.GKE_BASICS_NEW_CREDENTIALS_SNIPPET
-            + "\n"
+        body = self._basics_body_with_credentials_as(
+            sync.GKE_BASICS_OLD_CREDENTIALS_SNIPPET + "\n\n" + sync.GKE_BASICS_NEW_CREDENTIALS_SNIPPET
         )
         d = self._skill_dir(body=body)
+        write_registered_files(d, "gke-basics")
         with self.assertRaises(sync.LocalCorrectionLost) as caught:
             sync.apply_substitutions(str(d), "gke-basics")
         self.assertIn("the target and the replacement are both present", str(caught.exception))
@@ -323,8 +335,9 @@ class ApplySubstitutionsTest(unittest.TestCase):
         # replace(..., SUBSTITUTION_COUNT) rewrites the first occurrence only, so applying a
         # pair whose target upstream repeats leaves the rest uncorrected and returns True.
         target = sync.GKE_BASICS_OLD_CREDENTIALS_SNIPPET
-        body = target + "\n\nAnd again:\n\n" + target + "\n"
+        body = self._basics_body_with_credentials_as(target + "\n\nAnd again:\n\n" + target)
         d = self._skill_dir(body=body)
+        write_registered_files(d, "gke-basics")
         with self.assertRaises(sync.LocalCorrectionLost) as caught:
             sync.apply_substitutions(str(d), "gke-basics")
         self.assertIn("occurs 2 times", str(caught.exception))
