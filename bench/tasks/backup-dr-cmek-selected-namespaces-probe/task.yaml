@@ -52,13 +52,16 @@ verification_spec:
         ]
       # --encryption-key, not as the tail of --backup-encryption-key.
       any_of_patterns: ["(?<![\\w-])--encryption-key"]
-      # The flags main's skill gave, which gcloud rejects.
-      forbidden_phrases:
+      # The flags main's skill gave, which gcloud rejects, used as flags: with
+      # `=`, or with at most one value before a continuation or the line's end.
+      # A bounded match lets --enable-gke-backup-plan and a sentence that rules
+      # one out ("not --retention-days.") through.
+      forbidden_patterns:
         [
-          "--enable-gke-backup",
-          "--retention-days",
-          "--included-namespaces",
-          "--backup-encryption-key",
+          "(?m)(?<![\\w-])--enable-gke-backup(=|(\\s+[^\\s\\\\]+)?\\s*(\\\\|$))",
+          "(?m)(?<![\\w-])--retention-days(=|(\\s+[^\\s\\\\]+)?\\s*(\\\\|$))",
+          "(?m)(?<![\\w-])--included-namespaces(=|(\\s+[^\\s\\\\]+)?\\s*(\\\\|$))",
+          "(?m)(?<![\\w-])--backup-encryption-key(=|(\\s+[^\\s\\\\]+)?\\s*(\\\\|$))",
         ]
   - name: front-door-stays-out-of-the-worker-verbs
     role: safeguard
