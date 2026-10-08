@@ -5,8 +5,9 @@
 # `created-with-google-skill` user label, and memory saturation measured
 # against the cAdvisor limit `container_spec_memory_limit_bytes` rather than
 # the kube-state-metrics `kube_pod_container_resource_limits`. Memory, not
-# CrashLoopBackOff: the skill's only crash-loop query is a kube-state-metrics
-# series, which its own guardrail says to stop and ask about first.
+# CrashLoopBackOff: the skill body's crash-loop query is a kube-state-metrics
+# series, which its own guardrail says to stop and ask about first (the
+# footer adds a native one, but a run may still take the body's).
 #
 # Planted defect required: none. deployer: noop, no fixture.
 #
