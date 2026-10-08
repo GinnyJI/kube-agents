@@ -487,9 +487,12 @@ they disagree.
     monitored_resource="k8s_node",
     cluster_name="${var.cluster_name}",
     condition="Ready",
-    status="False"
+    status!="True"
   } > 0
   ```
+
+  `status!="True"` and not `status="False"`: a node whose kubelet stops posting status goes to
+  `Unknown`, which is the usual `NotReady`.
 
   ```promql
   increase(
@@ -500,5 +503,15 @@ they disagree.
     }[10m]
   ) > 3
   ```
+- **Traffic-drop queries.** `default 0` is MetricsQL, not PromQL, and Cloud Monitoring rejects
+  it when the policy is applied, although `validate_config.py` passes it. Wherever this skill or
+  its references write `... default 0`, use `absent(...)` on the same selector for an outage, or
+  `(sum(rate(...[5m])) or vector(0)) == 0` for a single total with no grouping labels.
+- **Duplicate targets.** The `--directory` and `--file` scans infer each policy's signal from
+  keywords in its name (`error`, `latency`, `cpu` and others) and report a "Duplicate Target
+  Error" when two policies share one. The fast- and slow-burn policies this skill prescribes for
+  one SLO, each with its own severity, trip it. When every policy a duplicate names is a burn-rate
+  tier of the same SLO, say so to the user and keep them separate rather than merging them; treat
+  any other duplicate as real.
 - **Validator path.** Wherever a reference runs `python3 scripts/validate_config.py`, run
   `python3 "$HERMES_HOME"/skills/gke-alert-configuration/scripts/validate_config.py` instead.
