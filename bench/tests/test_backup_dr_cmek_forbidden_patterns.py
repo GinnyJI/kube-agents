@@ -4,9 +4,8 @@ The report_contains verifier ``re.search``es each forbidden pattern over
 ``_normalize_lines``: lowercased, Markdown emphasis and backticks dropped,
 leading indentation collapsed, newlines kept. A substring would fail
 ``--enable-gke-backup-plan`` and a sentence, bullet or table that rules a flag
-out, so each pattern needs command context: a line that starts with ``gcloud``
-(after an optional list marker), or a continuation line that starts with the
-flag.
+out, so each pattern needs command context: ``gcloud [beta|alpha] container``
+earlier on the same line, or a line continued from one ending in a backslash.
 """
 
 from __future__ import annotations
@@ -32,12 +31,19 @@ def test_rejected_flags_in_commands_are_forbidden():
     for report in (
         "```\ngcloud container clusters update prod-1 \\\n  --enable-gke-backup \\\n  --location=us-central1\n```",
         "gcloud container clusters update prod-1 --location=us-central1 --enable-gke-backup",
-        "  --retention-days=30 \\",
-        "  --retention-days 30 \\",
+        "gcloud container clusters update prod-1 \\\n  --retention-days=30 \\",
+        "gcloud container clusters update prod-1 \\\n  --retention-days 30 \\",
         "gcloud beta container backup-restore backup-plans create p --included-namespaces=payments,ledger",
+        "gcloud beta container backup-restore backup-plans create p \\\n"
         "  --backup-encryption-key=projects/p/locations/us-central1/keyRings/k/cryptoKeys/gke",
         "gcloud container clusters update <CLUSTER_NAME> --enable-gke-backup --region <REGION> --quiet",
-        '  --retention-days 30 --cron-schedule "0 2 * * *" \\',
+        'gcloud beta container backup-restore backup-plans create p \\\n  --retention-days 30 --cron-schedule "0 2 * * *" \\',
+        'gcloud beta container backup-restore backup-plans create p \\\n  --cron-schedule="0 2 * * *" --retention-days=30 \\',
+        "gcloud beta container backup-restore backup-plans create p \\\n"
+        "  --selected-namespaces=payments,ledger --included-namespaces=payments \\",
+        "gcloud container clusters update \\\n  prod-1 --enable-gke-backup --location=us-central1",
+        "$ gcloud container clusters update prod-1 --enable-gke-backup",
+        "Run: gcloud container clusters update prod-1 --location=us-central1 --enable-gke-backup",
         "1. gcloud container clusters update prod-1 --location=us-central1 --enable-gke-backup",
     ):
         assert _forbidden(report), report
@@ -55,5 +61,11 @@ def test_bounded_flags_and_mentions_are_not_forbidden():
         "| `--backup-retain-days` | `--retention-days` |",
         "### Why not --included-namespaces",
         "Unlike gcloud's `--enable-gke-backup`, the addon flag is `--update-addons`.",
+        "gcloud rejects `--retention-days`; use `--backup-retain-days`.",
+        "gcloud does not have `--retention-days`; use `--backup-retain-days`.",
+        "1. gcloud does not have --included-namespaces",
+        "`--backup-encryption-key` is not a gcloud flag; the plan uses `--encryption-key`.",
+        "**--retention-days** — not a gcloud flag",
+        "Old flags:\n  --retention-days=30\n  --included-namespaces=payments",
     ):
         assert not _forbidden(report), report

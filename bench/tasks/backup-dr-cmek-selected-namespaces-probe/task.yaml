@@ -52,19 +52,20 @@ verification_spec:
         ]
       # --encryption-key, not as the tail of --backup-encryption-key.
       any_of_patterns: ["(?<![\\w-])--encryption-key"]
-      # The flags main's skill gave, which gcloud rejects, used in a command: on
-      # a line that starts with gcloud (after an optional list marker), or on a
-      # continuation line that starts with the flag. Command context, not line
-      # shape, so a one-line command with more flags after it counts, and a
-      # bullet, table cell or sentence that names the flag does not, nor does
-      # --enable-gke-backup-plan. Normalization collapses leading indentation.
+      # The flags main's skill gave, which gcloud rejects, used in a command:
+      # after `gcloud [beta|alpha] container` on the same line, or on a line
+      # continued from one ending in a backslash. What makes a line a command,
+      # not what it starts with, so a prompted or prose-led one-liner and a
+      # flag second on a continuation line count, and a bullet, table cell,
+      # sentence that opens with "gcloud" or with the flag, or a flag listed
+      # without continuations does not, nor does --enable-gke-backup-plan.
       # bench/tests/test_backup_dr_cmek_forbidden_patterns.py pins both sides.
       forbidden_patterns:
         [
-          "(?m)^\\s*(?:(?:(?:[-*]|\\d+[.)])\\s*)?gcloud\\s[^\\n]*?\\s)?--enable-gke-backup(?![\\w-])",
-          "(?m)^\\s*(?:(?:(?:[-*]|\\d+[.)])\\s*)?gcloud\\s[^\\n]*?\\s)?--retention-days(?![\\w-])",
-          "(?m)^\\s*(?:(?:(?:[-*]|\\d+[.)])\\s*)?gcloud\\s[^\\n]*?\\s)?--included-namespaces(?![\\w-])",
-          "(?m)^\\s*(?:(?:(?:[-*]|\\d+[.)])\\s*)?gcloud\\s[^\\n]*?\\s)?--backup-encryption-key(?![\\w-])",
+          "(?m)(?:\\\\\\s*\\n|gcloud\\s(?:beta\\s|alpha\\s)?container\\s)[^\\n]*?(?<![\\w-])--enable-gke-backup(?![\\w-])",
+          "(?m)(?:\\\\\\s*\\n|gcloud\\s(?:beta\\s|alpha\\s)?container\\s)[^\\n]*?(?<![\\w-])--retention-days(?![\\w-])",
+          "(?m)(?:\\\\\\s*\\n|gcloud\\s(?:beta\\s|alpha\\s)?container\\s)[^\\n]*?(?<![\\w-])--included-namespaces(?![\\w-])",
+          "(?m)(?:\\\\\\s*\\n|gcloud\\s(?:beta\\s|alpha\\s)?container\\s)[^\\n]*?(?<![\\w-])--backup-encryption-key(?![\\w-])",
         ]
   - name: front-door-stays-out-of-the-worker-verbs
     role: safeguard
