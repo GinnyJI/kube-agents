@@ -248,8 +248,9 @@ GKE_BACKUP_DR_NEW_BETA_COMPONENT_SNIPPET = """-   The `backup-restore` command g
 # substitution and the script never reads. The Validate step also credits the script with checking
 # PromQL grammar, which it does not parse. The replacements call it through "$HERMES_HOME"/skills/,
 # as submit-suggestion does, drop the flag, say what the script checks, and tell the agent to check
-# label scoping itself. kube_node_status_condition and kube_pod_container_status_restarts_total come
-# from kube-state-metrics, so the tier rule files them as Tier 2 rather than Tier 1.
+# label scoping itself. Every kube_* series the references name (kube_node_status_condition,
+# kube_node_spec_taint, kube_pod_container_status_restarts_total and the workload series) comes from
+# kube-state-metrics, so the tier rule files them all as Tier 2, whatever the references' columns say.
 GKE_ALERT_CONFIGURATION_OLD_VALIDATE_STEP_SNIPPET = """    2.  **Validate**: Run the pre-edit validation script (`python3
         scripts/validate_config.py --plan changes.json`) to verify PromQL
         grammar, lookback windows, duration rules, and ensure no duplicate
@@ -277,9 +278,9 @@ GKE_ALERT_CONFIGURATION_OLD_DIRECTORY_COMMAND_SNIPPET = """    *   Command: `pyt
 GKE_ALERT_CONFIGURATION_NEW_DIRECTORY_COMMAND_SNIPPET = """    *   Command: `python3
         "$HERMES_HOME"/skills/gke-alert-configuration/scripts/validate_config.py
         --directory [TARGET_TF_DIR]`
-    *   Single file validation: `python3
-        "$HERMES_HOME"/skills/gke-alert-configuration/scripts/validate_config.py
-        --file [PATH_TO_TF_FILE]`
+    *   For a single file, run `--directory` on the absolute path of the
+        directory that holds it. `--file` prints no policy count, so its
+        pass cannot be read against the rules below.
     *   The script does not check label scoping or hardcoded cluster names:
         confirm each query's scope yourself. cAdvisor, kube-state-metrics
         and application series take `cluster="${var.cluster_name}"` and
@@ -290,24 +291,28 @@ GKE_ALERT_CONFIGURATION_NEW_DIRECTORY_COMMAND_SNIPPET = """    *   Command: `pyt
         extracted, and `0` never means the files are clean. No `.tf` file
         sits directly in that path (pass the absolute path of the directory
         that holds them; the scan does not recurse), the files hold no
-        alert policy, or the scanner could not parse a policy block (an odd
-        `"` in a comment, for one). If the right path still reports `0` for
-        a file that holds a policy, check that policy by eye. A non-zero
-        count is not a clean bill either: the scan lints only a `query`
-        written as an inline `EOT` heredoc or a quoted string, and a policy
-        whose `query` comes from a variable, `local`, `file()`,
-        `templatefile()` or another heredoc delimiter is counted but not
-        linted. Check those queries by eye too."""
+        alert policy, or the scanner could not parse a policy block. If the
+        right path still reports `0` for a file that holds a policy, check
+        that policy by eye. A non-zero count is not a clean bill either. The
+        scanner reads comments as code, so a `{`, `}` or `"` in a comment can
+        drop a policy from the count or cut it short so it is counted but
+        not linted. It lints a `query` written as an inline `EOT` heredoc,
+        and a quoted-string `query` only in a resource with no heredoc one;
+        a `query` from a variable, `local`, `file()`, `templatefile()` or
+        another heredoc delimiter is counted but not linted. Check by eye
+        every policy with a comment inside it and every `query` the scan
+        does not lint."""
 
 GKE_ALERT_CONFIGURATION_OLD_KSM_TIER_SNIPPET = """            `container_*`, kubelet volume stats, kubelet node conditions, and
             control-plane metrics; see"""
 
 GKE_ALERT_CONFIGURATION_NEW_KSM_TIER_SNIPPET = """            `container_*`, kubelet volume stats, native
             `kubernetes.io/node/status_condition`, and control-plane metrics.
-            `kube_node_status_condition` and
-            `kube_pod_container_status_restarts_total` are kube-state-metrics
-            series and therefore Tier 2, whatever the tier columns in the
-            references say; see"""
+            Every `kube_*` series the references name
+            (`kube_node_status_condition`, `kube_node_spec_taint` and
+            `kube_pod_container_status_restarts_total` among them) is a
+            kube-state-metrics series and therefore Tier 2, whatever the
+            KSM-required or tier columns in the references say; see"""
 
 # In-place content substitutions applied to freshly-synced skills to correct upstream defects
 # where an appended footer is insufficient (e.g. multi-step remediation commands), to route to a
@@ -574,6 +579,9 @@ they disagree.
   traffic-drop query above does.
 - **Validator path.** Wherever a reference runs `python3 scripts/validate_config.py`, run
   `python3 "$HERMES_HOME"/skills/gke-alert-configuration/scripts/validate_config.py` instead.
+  Where it passes `--file <file>` (the prerequisites' Verification Runbook does), pass
+  `--directory` with the absolute path of the directory that holds the file, so the scan prints
+  the policy count the Post-Edit step reads.
 """,
     "gke-networking": f"""{FOOTER_MARKER}
 
