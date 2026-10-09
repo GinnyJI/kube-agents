@@ -252,6 +252,42 @@ GKE_COMPUTE_CLASSES_NEW_CODE_FIRST_SNIPPET = """**SAY SO AND POINT AT THE CODE**
 GKE_CLUSTER_AUTOSCALER_OLD_COOLDOWN_SNIPPET = """puts the **entire affected priority tier on a ~5-min GLOBAL cooldown**. During that window all pending pods"""
 
 GKE_CLUSTER_AUTOSCALER_NEW_COOLDOWN_SNIPPET = """puts the **entire affected priority tier on a ~5-min cooldown**: across all zones before GKE `1.36.3-gke.1244000`, in the stocked-out zone only from it (quota errors stay regional; see `gke-compute-classes`). During a cross-zone cooldown all pending pods"""
+# gke-backup-dr upstream fuses the end of best practice 5 into the next heading: the sentence
+# stops at "Service**," and "## Golden Path Backup Defaults" follows on the same line, so the
+# heading does not render and the sentence never says why the distinction matters. The
+# replacement restores the clause the previous upstream version ended it with.
+GKE_BACKUP_DR_OLD_TERMINOLOGY_SNIPPET = """    Service**, ## Golden Path Backup Defaults
+"""
+
+GKE_BACKUP_DR_NEW_TERMINOLOGY_SNIPPET = """    Service**, as **Backup for GKE** is built specifically for GKE.
+
+## Golden Path Backup Defaults
+"""
+
+# The skill's restore plan leaves out --volume-data-restore-policy, whose default is
+# no-volume-data-restoration: the restore brings back PVCs bound to blank volumes even though the
+# backup plan above it includes volume data. The replacement restores from the backup.
+GKE_BACKUP_DR_OLD_RESTORE_POLICY_SNIPPET = """  --all-namespaces \\
+  --cluster-resource-conflict-policy=use-existing-version \\
+"""
+
+GKE_BACKUP_DR_NEW_RESTORE_POLICY_SNIPPET = """  --all-namespaces \\
+  --volume-data-restore-policy=restore-volume-data-from-backup \\
+  --cluster-resource-conflict-policy=use-existing-version \\
+"""
+
+# gke-backup-dr's Notes upstream tell the agent to run `gcloud components install beta`. Here gcloud
+# runs through the credential proxy, which refuses component installs, and the image's
+# apt-installed gcloud already carries the beta track. The replacement says so.
+GKE_BACKUP_DR_OLD_BETA_COMPONENT_SNIPPET = """-   The `backup-restore` command group requires the `gcloud beta` component
+    (`gcloud components install beta`).
+"""
+
+GKE_BACKUP_DR_NEW_BETA_COMPONENT_SNIPPET = """-   The `backup-restore` command group is on the `gcloud beta` track
+    (`gcloud beta container backup-restore ...`), which this image's gcloud
+    already includes. Do not run `gcloud components install`: the credential
+    proxy refuses it.
+"""
 
 # In-place content substitutions applied to freshly-synced skills to correct upstream defects
 # where an appended footer is insufficient (e.g. multi-step remediation commands), to route to a
@@ -313,6 +349,20 @@ SKILL_SUBSTITUTIONS = {
         (
             GKE_CLUSTER_AUTOSCALER_OLD_COOLDOWN_SNIPPET,
             GKE_CLUSTER_AUTOSCALER_NEW_COOLDOWN_SNIPPET,
+        ),
+    ],
+    "gke-backup-dr": [
+        (
+            GKE_BACKUP_DR_OLD_TERMINOLOGY_SNIPPET,
+            GKE_BACKUP_DR_NEW_TERMINOLOGY_SNIPPET,
+        ),
+        (
+            GKE_BACKUP_DR_OLD_RESTORE_POLICY_SNIPPET,
+            GKE_BACKUP_DR_NEW_RESTORE_POLICY_SNIPPET,
+        ),
+        (
+            GKE_BACKUP_DR_OLD_BETA_COMPONENT_SNIPPET,
+            GKE_BACKUP_DR_NEW_BETA_COMPONENT_SNIPPET,
         ),
     ],
 }
