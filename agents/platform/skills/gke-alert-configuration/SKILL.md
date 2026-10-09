@@ -350,7 +350,12 @@ configurations when working in a repository:
         that holds them; the scan does not recurse), the files hold no
         alert policy, or the scanner could not parse a policy block (an odd
         `"` in a comment, for one). If the right path still reports `0` for
-        a file that holds a policy, check that policy by eye.
+        a file that holds a policy, check that policy by eye. A non-zero
+        count is not a clean bill either: the scan lints only a `query`
+        written as an inline `EOT` heredoc or a quoted string, and a policy
+        whose `query` comes from a variable, `local`, `file()`,
+        `templatefile()` or another heredoc delimiter is counted but not
+        linted. Check those queries by eye too.
 
 --------------------------------------------------------------------------------
 
@@ -551,6 +556,11 @@ they disagree.
 - **Terraform.** The agent's shell has no `terraform` binary, so the prerequisites' Verification
   Runbook `terraform init` and `terraform validate` cannot run there: hand the user the `.tf`
   changes with `terraform validate` as their step, and do not report it as run.
+- **Catalog regexes.** The `metrics_and_alerts_catalog.md` table rows escape each `|` with a
+  backslash for Markdown, and in PromQL's RE2 that backslash makes the pipe a literal, so a
+  copied matcher never matches. Drop the backslashes: the regexes are `(4|5)..` (API client
+  errors), `Pending|Unknown|Failed` (Pod not healthy), `Failed|Pending` (PersistentVolume error)
+  and `(?:CONNECT|WATCHLIST|WATCH|PROXY)` (API server latency).
 - **Offset spacing.** The validator reads an `offset` duration up to the next whitespace, so it
   rejects `offset 1w))`. Leave a space or line break after the duration (`offset 1w ))`), as the
   traffic-drop query above does.
