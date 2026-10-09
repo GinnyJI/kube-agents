@@ -10,16 +10,23 @@
 # annotation as a way to block eviction, so main is pointed at the annotation.
 #
 # The objective checks rest on manifest tokens neither the prompt nor main's
-# skill text supplies: a PodDisruptionBudget manifest whose matchLabels block
-# selects version: green, and a budget that refuses every eviction
-# (maxUnavailable: 0, or the equivalent minAvailable: 100% the lifecycle
-# reference names). Both patterns start at kind: PodDisruptionBudget and stay
-# inside that YAML document (no ---, code fence or second kind: in between),
-# so a Deployment's own selector or rollingUpdate.maxUnavailable: 0 cannot
-# satisfy them. The selector gap also stops at the next PDB field, so
+# skill text supplies: a PodDisruptionBudget manifest whose selector picks
+# version: green (matchLabels, or a matchExpressions key: version, operator:
+# In, values naming green, in that order), and a budget that refuses every
+# eviction (maxUnavailable: 0, or the equivalent minAvailable: 100% the
+# lifecycle reference names). Keys may be quoted, so a JSON manifest counts.
+# Both patterns start at kind: PodDisruptionBudget and stay inside that
+# document: they stop at ---, a second kind:, or a blank line. Normalization
+# deletes backticks, so a closing code fence reaches the regex as a blank line,
+# and the blank line is the fence stop; a PDB manifest with a blank line of its
+# own inside it fails the check. A Deployment's selector, its
+# rollingUpdate.maxUnavailable: 0, or prose after the manifest therefore
+# cannot satisfy them. The selector gap also stops at the next PDB field, so
 # metadata.labels or a selector naming only app: shop does not count; a flow
 # mapping ({app: shop, version: green}) does. Normalization collapses
 # indentation, which is why the bound is the sibling keys and not the indent.
+# An integer minAvailable is not accepted: the prompt gives no replica count,
+# so a number there is a guess.
 # bench/tests/test_compute_class_canary_pdb_patterns.py pins both directions. Why the annotation is wrong is left to the judge, which
 # reads expected_output: a regex over the flat report cannot tell "rolls every
 # pod" said of the annotation from the same words said of the PDB or negated.
@@ -69,7 +76,8 @@ verification_spec:
       type: report_contains
       any_of_patterns:
         [
-          "kind:\\s*poddisruptionbudget(?:(?!\\n\\s*(?:---|```)|kind:)[\\s\\S]){0,800}?matchlabels:(?:(?!\\n\\s*(?:---|```|maxunavailable:|minavailable:|unhealthypodevictionpolicy:|metadata:|spec:|matchexpressions:|labels:)|kind:)[\\s\\S]){0,120}?version:\\s*[\"']?green",
+          "kind[\"']?:\\s*[\"']?poddisruptionbudget(?:(?!\\n\\s*(?:---|\\n)|kind[\"']?:)[\\s\\S]){0,800}?matchlabels[\"']?:(?:(?!\\n\\s*(?:---|\\n|[\"']?(?:maxunavailable|minavailable|unhealthypodevictionpolicy|metadata|spec|labels|matchexpressions)[\"']?:)|kind[\"']?:)[\\s\\S]){0,120}?version[\"']?:\\s*[\"']?green",
+          "kind[\"']?:\\s*[\"']?poddisruptionbudget(?:(?!\\n\\s*(?:---|\\n)|kind[\"']?:)[\\s\\S]){0,800}?matchexpressions[\"']?:(?:(?!\\n\\s*(?:---|\\n|[\"']?(?:maxunavailable|minavailable|unhealthypodevictionpolicy|metadata|spec|labels|matchlabels)[\"']?:)|kind[\"']?:)[\\s\\S]){0,80}?key[\"']?:\\s*[\"']?version[\"']?(?:(?!\\n\\s*(?:---|\\n|[\"']?(?:maxunavailable|minavailable|unhealthypodevictionpolicy|metadata|spec|labels|matchlabels|key)[\"']?:)|kind[\"']?:)[\\s\\S]){0,80}?operator[\"']?:\\s*[\"']?in[\"']?(?:(?!\\n\\s*(?:---|\\n|[\"']?(?:maxunavailable|minavailable|unhealthypodevictionpolicy|metadata|spec|labels|matchlabels|key)[\"']?:)|kind[\"']?:)[\\s\\S]){0,80}?values[\"']?:[^\\n]{0,20}?[\"']?green",
         ]
   - name: the-pdb-refuses-every-eviction
     role: objective
@@ -78,7 +86,7 @@ verification_spec:
       type: report_contains
       any_of_patterns:
         [
-          "kind:\\s*poddisruptionbudget(?:(?!\\n\\s*(?:---|```)|kind:)[\\s\\S]){0,800}?(?:maxunavailable:\\s*[\"']?0\\b|minavailable:\\s*[\"']?100%)",
+          "kind[\"']?:\\s*[\"']?poddisruptionbudget(?:(?!\\n\\s*(?:---|\\n)|kind[\"']?:)[\\s\\S]){0,800}?(?:maxunavailable[\"']?:\\s*[\"']?0\\b|minavailable[\"']?:\\s*[\"']?100%)",
         ]
   - name: front-door-stays-out-of-the-worker-verbs
     role: safeguard

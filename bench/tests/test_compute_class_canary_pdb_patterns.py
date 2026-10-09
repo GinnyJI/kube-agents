@@ -5,7 +5,9 @@ The report_contains verifier ``re.search``es each ``any_of_patterns`` entry over
 leading indentation collapsed to one space, newlines kept. A presence check
 over the whole report would let a Deployment's selector or its
 ``rollingUpdate.maxUnavailable: 0`` stand in for the PDB's, so each pattern
-starts at ``kind: PodDisruptionBudget`` and stops at the next YAML document.
+starts at ``kind: PodDisruptionBudget`` and stops at the next YAML document:
+``---``, a second ``kind:``, or the blank line a closing code fence leaves once
+normalization has deleted its backticks.
 """
 
 from __future__ import annotations
@@ -41,6 +43,8 @@ def test_a_version_scoped_zero_budget_pdb_passes():
         'spec:\n  maxUnavailable: "0"\n  selector:\n    matchLabels:\n      app: shop\n      version: "green"\n```',
         "spec:\n  minAvailable: 100%\n  selector:\n    matchLabels: {app: shop, version: green}\n```",
         "spec:\n  selector: {matchLabels: {app: shop, version: green}}\n  maxUnavailable: 0\n```",
+        "spec:\n  maxUnavailable: 0\n  selector:\n    matchExpressions:\n    - key: version\n      operator: In\n"
+        "      values: [green]\n```",
     ):
         report = PDB_HEAD + spec
         assert _matches(SELECTOR, report), report
@@ -63,5 +67,40 @@ def test_the_pdbs_own_metadata_labels_are_not_its_selector():
     report = (
         PDB_HEAD
         + "  labels:\n    app: shop\n    version: green\nspec:\n  maxUnavailable: 0\n  selector:\n    matchLabels:\n      app: shop\n```"
+    )
+    assert not _matches(SELECTOR, report)
+
+
+def test_a_quoted_or_json_pdb_passes():
+    quoted = PDB_HEAD.replace("kind: PodDisruptionBudget", 'kind: "PodDisruptionBudget"') + (
+        "spec:\n  maxUnavailable: 0\n  selector:\n    matchLabels:\n      app: shop\n      version: green\n```"
+    )
+    json_pdb = (
+        '```json\n{"apiVersion": "policy/v1", "kind": "PodDisruptionBudget", "metadata": {"name": "shop-green-pdb"},\n'
+        ' "spec": {"maxUnavailable": 0, "selector": {"matchLabels": {"app": "shop", "version": "green"}}}}\n```'
+    )
+    for report in (quoted, json_pdb):
+        assert _matches(SELECTOR, report), report
+        assert _matches(BUDGET, report), report
+
+
+def test_prose_after_a_closed_fence_does_not_stand_in_for_the_pdb():
+    # The PDB selects app: shop only and keeps a 25% budget, and nothing after it
+    # opens with --- or kind:; the version label and the zero budget come from
+    # prose and a fenced fragment after the manifest's closing fence.
+    loose = PDB_HEAD + "spec:\n  maxUnavailable: 25%\n  selector:\n    matchLabels:\n      app: shop\n```\n"
+    for tail in (
+        "It selects app: shop, version: green and blue alike. A `maxUnavailable: 0` budget would block rollouts.",
+        "Your Deployment already selects:\n```yaml\nselector:\n  matchLabels:\n    app: shop\n    version: green\n"
+        "rollingUpdate:\n  maxUnavailable: 0\n```",
+    ):
+        assert not _matches(SELECTOR, loose + tail), tail
+        assert not _matches(BUDGET, loose + tail), tail
+
+
+def test_a_notin_expression_is_not_a_version_scoped_selector():
+    report = PDB_HEAD + (
+        "spec:\n  maxUnavailable: 0\n  selector:\n    matchExpressions:\n    - key: version\n      operator: NotIn\n"
+        "      values: [green]\n```"
     )
     assert not _matches(SELECTOR, report)
