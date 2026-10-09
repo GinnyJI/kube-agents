@@ -12,6 +12,8 @@ Three invariants:
   written, rather than publishing the uncorrected upstream content with exit 0.
 """
 
+import ast
+import collections
 import fnmatch
 import importlib.util
 import io
@@ -889,6 +891,23 @@ class AbortTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, 1)
         self.assertEqual(err.getvalue(), "the message\n")
         self.assertEqual(out.getvalue(), "progress")
+
+
+class ModuleAssignmentTest(unittest.TestCase):
+    def test_no_module_level_name_is_assigned_twice(self):
+        # Two branches that each add a registry entry can auto-merge into a second assignment of the
+        # same registry, and the later one silently replaces the earlier: the merge of one sync pull
+        # request re-declared SKILL_FILE_SUBSTITUTIONS with gke-basics alone and dropped gke-upgrades'
+        # reference corrections while every other test stayed green.
+        tree = ast.parse(Path(_SPEC.origin).read_text(encoding="utf-8"))
+        counts = collections.Counter(
+            target.id
+            for node in tree.body
+            if isinstance(node, ast.Assign)
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        )
+        self.assertEqual({name: n for name, n in counts.items() if n > 1}, {})
 
 
 if __name__ == "__main__":
