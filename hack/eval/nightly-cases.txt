@@ -708,6 +708,10 @@
 # because each repetition runs four real audits back to back.
 ./tasks/oobe-first-run-audits/task.yaml
 
+# The agent's own observability: whether the event watcher's metrics are
+# scraped, answered from the PodMonitoring and the Cloud Monitoring series.
+./tasks/observability-watcher-scrape-state/task.yaml
+
 # gke-platform-security skill probe: Secrets encryption is verified on
 # databaseEncryption.currentState (CURRENT_STATE_ENCRYPTED), the observed
 # state, not on databaseEncryption.state, the requested one.
