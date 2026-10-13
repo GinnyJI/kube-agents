@@ -23,7 +23,7 @@ Guidance on configuring, optimizing, and troubleshooting GKE ComputeClasses.
 --------------------------------------------------------------------------------
 
 ## CRITICAL RULES
-- **CODE-FIRST VERIFICATION (OPEN-SOURCE CODEBASE):** GKE Cluster Autoscaler and ComputeClasses are open-sourced at `https://github.com/GoogleCloudPlatform/cluster-autoscaler`. When user questions challenge or explore undocumented/subtle behaviors, or when guidance is not explicitly established in this skill, **VERIFY BEHAVIOR DIRECTLY IN CODE** (via local repository clone or fetching raw files from GitHub). Check `git log -S` and `git blame` to identify the exact commit and date when behavior changed, and communicate version/date ranges to the user (e.g. *"This behavior changed on July 20, 2026 in upstream commit 129daa3756..."*). See `references/compute-class-code-index.md` for exact package and symbol mappings.
+- **CODE-FIRST VERIFICATION (OPEN-SOURCE CODEBASE):** GKE Cluster Autoscaler and ComputeClasses are open-sourced at `https://github.com/GoogleCloudPlatform/cluster-autoscaler`. When user questions challenge or explore undocumented/subtle behaviors, or when guidance is not explicitly established in this skill, **SAY SO AND POINT AT THE CODE**: this install's terminal cannot clone or fetch from GitHub, so do not try. Name the package or symbol from the code index for the user to check with `git log -S` and `git blame`, and do not state a version or date range you have not read. See `references/compute-class-code-index.md` for exact package and symbol mappings.
 
 ## Engagement Rules: Generalized First, Refine Later
 
@@ -182,7 +182,6 @@ not block the user's initial request.** If asked for YAML/recommendations:
     `cloud.google.com/machine-family: <PRIMARY_FAMILY>`. Do NOT recommend GCE
     Capacity Reservations or manual node pool limits for capping core usage.
 -   **Large-shape obtainability:** Machine shapes **>32 vCPU** are scarcer than
-
     smaller ones (thinner capacity pools, more `out.of.resources` stockouts). A
     ComputeClass pinned to large machines **only** risks `Pending`. Add
     **smaller-core fallback priorities** — but only **if the workload allows
@@ -211,6 +210,7 @@ not block the user's initial request.** If asked for YAML/recommendations:
     entries, each with its own `name` + `zones`). Don't split zones into
     separate priorities, and don't collapse them into one entry. Needs **no
     `priorityScore`** (GKE 1.35.2+). Asset:
+    `balanced-reserved-zonal-compute-class.yaml`.
 -   **Stockout cooldown cascade — fallback laddering & stateful isolation:**
     -   *Cooldown Scope*: In GKE versions prior to `1.36.3-gke.1244000`, a hard zonal stockout (`out_of_resources` / `ZONE_RESOURCE_POOL_EXHAUSTED`) on a priority tier trips a ~5-minute **regional** cooldown on that whole tier across all zones. Starting in GKE `1.36.3-gke.1244000+`, stockout cooldowns are strictly **zonal**, keeping healthy zones active on preferred tiers (quota errors remain regional).
     -   *Cascade Mechanism*: Cascades to the bottom tier occur when **zonally constrained workloads** (pods bound to a zonal PV or rigid zonal `nodeSelector`/affinity) demand capacity in a stocked-out zone, forcing evaluation down the fallback ladder and tripping the 5-minute cooldown.
@@ -384,3 +384,20 @@ spec:
     `assets/capacity-quota-spillover.yaml` (scale-up cap with fallback spillover).
 
 
+<!-- kube-agents: local addition (auto-injected by sync-upstream-skills.py) -->
+
+## Node upgrades during a PDB-guarded canary
+
+The "Node auto-upgrades" row in `references/compute-class-lifecycle.md` overstates the protection:
+GKE's node-upgrade drain respects a PodDisruptionBudget for up to one hour, then evicts the pods
+anyway. A node auto-upgrade can therefore still evict the green pods of a multi-hour canary guarded
+by a `maxUnavailable: 0` PDB. When the rollout must not be disrupted, run it outside the cluster's
+maintenance window or add a maintenance exclusion for its duration (see `gke-upgrades`).
+
+## Reading the code index from this install
+
+`references/compute-class-code-index.md` opens by telling its reader to clone the repository, and
+its "Code verification instructions" section runs `git log` and `git blame`. Those steps are for the
+user's own terminal: this install cannot reach GitHub, so follow the CRITICAL RULE above and hand
+them to the user. The index's `groupRulesByScore` entry names a function the upstream source does
+not have; do not cite it.

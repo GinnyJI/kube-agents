@@ -1,0 +1,19 @@
+Subject: Have the agent point at the code instead of fetching it
+
+Why: This install's terminal cannot clone or fetch from GitHub, so the CODE-FIRST rule must have the agent name the package or symbol for the user to check and never state a version or date it has not read; append.md's code-index section carries the same reason.
+Local-Issue: #2692
+Upstream-Issue: none (specific to this repository)
+Retire-When: never; the install has no GitHub egress by design
+
+diff --git a/SKILL.md b/SKILL.md
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -23,7 +23,7 @@ Guidance on configuring, optimizing, and troubleshooting GKE ComputeClasses.
+ --------------------------------------------------------------------------------
+ 
+ ## CRITICAL RULES
+-- **CODE-FIRST VERIFICATION (OPEN-SOURCE CODEBASE):** GKE Cluster Autoscaler and ComputeClasses are open-sourced at `https://github.com/GoogleCloudPlatform/cluster-autoscaler`. When user questions challenge or explore undocumented/subtle behaviors, or when guidance is not explicitly established in this skill, **VERIFY BEHAVIOR DIRECTLY IN CODE** (via local repository clone or fetching raw files from GitHub). Check `git log -S` and `git blame` to identify the exact commit and date when behavior changed, and communicate version/date ranges to the user (e.g. *"This behavior changed on July 20, 2026 in upstream commit 129daa3756..."*). See `references/compute-class-code-index.md` for exact package and symbol mappings.
++- **CODE-FIRST VERIFICATION (OPEN-SOURCE CODEBASE):** GKE Cluster Autoscaler and ComputeClasses are open-sourced at `https://github.com/GoogleCloudPlatform/cluster-autoscaler`. When user questions challenge or explore undocumented/subtle behaviors, or when guidance is not explicitly established in this skill, **SAY SO AND POINT AT THE CODE**: this install's terminal cannot clone or fetch from GitHub, so do not try. Name the package or symbol from the code index for the user to check with `git log -S` and `git blame`, and do not state a version or date range you have not read. See `references/compute-class-code-index.md` for exact package and symbol mappings.
+ 
+ ## Engagement Rules: Generalized First, Refine Later
+ 
