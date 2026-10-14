@@ -65,7 +65,7 @@ During phased blue-green or canary deployments (e.g., 10% -> 30% -> 60% -> 100% 
 | **ActiveMigration / Consolidation** | Cluster Autoscaler queries Eviction API; eviction rejected (`disruptionsAllowed: 0`). | **Desired**: Pods remain stable on nodes during rollout. |
 | **Involuntary node loss (Spot preemption / host failure)** | Hypervisor reclaims VM (involuntary disruption, bypasses Eviction API). | **Self-healing**: ReplicaSet detects missing ready replicas and spawns replacements via Pod Create API immediately. |
 | **Rollout abort / rollback** | CI/CD scales replicas to 0 or deletes Green Deployment. | **Safe**: Pod Delete API bypasses PDBs; pods terminate immediately. |
-| **Node auto-upgrades** | GKE node drain queries Eviction API and pauses until drain timeout. | **Low risk**: Node upgrades wait for rollout completion. |
+| **Node auto-upgrades** | GKE node drain queries Eviction API and respects the PDB for up to one hour, then evicts the pods anyway. | **Not protected**: a node upgrade can still evict a multi-hour canary's pods. Run the rollout outside the maintenance window or add a maintenance exclusion for its duration (see `gke-upgrades`). |
 
 ```yaml
 # 1. Rollout Guard PDB (Stage 1)

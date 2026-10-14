@@ -2,7 +2,7 @@
 
 This reference maps GKE ComputeClasses behaviors, lifecycle events, and priority rules directly to source files and key function symbols in the open-source repository: [https://github.com/GoogleCloudPlatform/cluster-autoscaler](https://github.com/GoogleCloudPlatform/cluster-autoscaler).
 
-When verifying behavior or investigating edge cases, clone the repository or fetch raw source files directly from GitHub.
+This install's terminal cannot clone or fetch from GitHub, so do not try: name the file and symbol from this index for the user to check in their own clone.
 
 ---
 
@@ -12,7 +12,7 @@ When verifying behavior or investigating edge cases, clone the repository or fet
 
 | Behavior / Feature | Source File Path | Key Structs & Functions | Behavioral Notes |
 |---|---|---|---|
-| **Priority rule evaluation & grouping** | `pkg/computeclass/organizer.go` | `organizer.organizeByRules`, `groupRulesByScore` | Sorts and evaluates `priorities[]` top-to-bottom. Rules sharing `priorityScore` evaluate as a single tier. |
+| **Priority rule evaluation & grouping** | `pkg/computeclass/organizer.go` | `organizer.organizeByRules` | Sorts and evaluates `priorities[]` top-to-bottom. Rules sharing `priorityScore` evaluate as a single tier. |
 | **5-minute fixed cooldown** | `pkg/backoff/gke_mig_backoff.go` | `NpcBackoffDuration = 5 * time.Minute` | Fixed non-exponential cooldown applied to failing declarative priority rungs upon stockout. |
 | **Cumulative cooldown prolongation** | `pkg/backoff/npc_backoff.go` | `npcCrdBackoff.Backoff`, `npcCrdBackoff.BackoffStatus` | Reset and prolonged to `currentTime + 5m` across all previously failing rungs when a lower priority fails sequentially. |
 | **Fallback floor safety guarantee** | `pkg/backoff/npc_backoff.go` | `getRuleCount`, line check `ruleIdx >= getRuleCount(npcCrd)-1` | The final priority rule (and implicit `ScaleUpAnyway` fallback tier) is never backed off by `npcCrdBackoff`. |
@@ -50,7 +50,7 @@ When verifying behavior or investigating edge cases, clone the repository or fet
 
 ## Code verification instructions
 
-When troubleshooting or investigating behavioral changes:
+These steps run in the user's own clone, not in this install; hand them to the user when troubleshooting or investigating behavioral changes:
 1. **Search Git Log by Symbol**:
    ```bash
    git log -S "<function_or_const_name>" -p -- <filepath>

@@ -78,7 +78,7 @@ Applied to pools created by the autoscaler.
     at scale-up — *infrastructure* layer; still scales up if a zone is short).
     Balances nodes, **not** pods — for even *pod* distribution add pod
     `topologySpreadConstraints`/`DoNotSchedule` (*workload* layer).
--   `reservations`: `affinity: Specific` or `None`.
+-   `reservations`: `affinity: Specific`, `AnyBestEffort` or `None`; `AnyThenFail` from GKE 1.36.0-gke.3204000.
 -   `flexStart`: `{ enabled: true }` for DWS queued provisioning.
 -   `gpu` / `tpu`: Accelerator requests (count, type, topology).
 -   `nodepools`: (Standard Only) List of manual pool names to target.

@@ -54,7 +54,7 @@ not block the user's initial request.** If asked for YAML/recommendations:
         your existing CUDs/Reservations`.
     *   **MUST label initial YAML as `EXAMPLE TEMPLATE - DO NOT DEPLOY`.**
     *   **STRICT SCHEMA RULE:** NEVER hallucinate fields. Do NOT use
-        `spec.description`, `gvnic`, `transparentHugepageEnabled`, or
+        `spec.description`, `transparentHugepageEnabled`, or
         `shutdownGracePeriodSeconds`. Use `bootDiskSize` (NOT `bootDiskSizeGb`).
     *   **YAML FORMATTING RULE:** NEVER quote integer or boolean values (e.g.,
         use `bootDiskSize: 50`, not `bootDiskSize: "50"`). `imageType` MUST be
@@ -225,8 +225,8 @@ not block the user's initial request.** If asked for YAML/recommendations:
     -   *Safety*: `maxUnavailable: 0` does not block pod creation (Pod Create API) or rollback (Pod Delete API). Involuntary VM loss (Spot preemption) bypasses PDBs and ReplicaSet spawns replacements immediately.
 -   **Fallback Ladder & Standby Headroom Best Practices (`machineFamily` vs `nodepools` & `CapacityBuffer`):**
     -   *Prefer `machineFamily` over `priorities[].nodepools`*: Rules referencing manual node pools do not benefit from ComputeClass cooldown prolongation and rely solely on standard 5-minute GCE MIG backoffs. Sprawling manual pool lists (>6–8 pools) cause early MIG backoffs to expire before lower rungs are evaluated, bouncing the autoscaler back to the top in an infinite loop. Use `machineFamily` with `nodePoolAutoCreation.enabled: true`.
-    -   *Place `flexStart: true` at the very end*: Dynamic Workload Scheduler (DWS) queuing takes 3–15+ minutes to return stockout signals; placing `flexStart` higher in the ladder allows earlier backoffs to expire during the wait and resets the autoscaler to the top.
-    -   *Avoid `min-nodes` on fallback pools (Scheduler Bypass)*: `kube-scheduler` assigns incoming pods to idle nodes held by `min-nodes` *before* Cluster Autoscaler evaluates ComputeClass priorities. If fallback pools have `min-nodes > 0`, pods land on fallback hardware permanently, bypassing preferred tiers. Set `min-nodes: 0` and use `CapacityBuffer` (`buffer.x-k8s.io`).
+    -   *Place `flexStart: true` below the reservation and On-Demand rungs*: Dynamic Workload Scheduler (DWS) queuing takes 3–15+ minutes to return stockout signals; placing `flexStart` higher in the ladder allows earlier backoffs to expire during the wait and resets the autoscaler to the top. Make it the last non-preemptible tier (`Reservations -> On-Demand -> DWS FlexStart -> Spot`, per the CRITICAL AI/ML RULE); Spot may follow it.
+    -   *Avoid `min-nodes` on fallback pools (Scheduler Bypass)*: `kube-scheduler` assigns incoming pods to idle nodes held by `min-nodes` *before* Cluster Autoscaler evaluates ComputeClass priorities. If fallback pools have `min-nodes > 0`, pods land on fallback hardware permanently, bypassing preferred tiers. Set `min-nodes: 0` and use `CapacityBuffer` (`autoscaling.x-k8s.io`, with `provisioningStrategy: buffer.x-k8s.io/active-capacity`).
     -   *GKE 1.36+ Synchronous Obtainability*: Starting in GKE 1.36, Cluster Autoscaler checks internal capacity obtainability synchronously in memory before creating VMs, skipping exhausted families without tripping GCE API errors or backoff cooldowns. Note: `gcloud beta compute advice capacity` is a discrete Spot/Flex heuristic (0.1, 0.5, 0.9); Google does not expose public real-time on-demand APIs.
 -   **Stateful PV StorageClass — recommend `dynamic-rwo`:** GKE
     1.35.3-gke.1290000+. Back stateful data PVs with built-in **`dynamic-rwo`**
@@ -384,20 +384,3 @@ spec:
     `assets/capacity-quota-spillover.yaml` (scale-up cap with fallback spillover).
 
 
-<!-- kube-agents: local addition (auto-injected by sync-upstream-skills.py) -->
-
-## Node upgrades during a PDB-guarded canary
-
-The "Node auto-upgrades" row in `references/compute-class-lifecycle.md` overstates the protection:
-GKE's node-upgrade drain respects a PodDisruptionBudget for up to one hour, then evicts the pods
-anyway. A node auto-upgrade can therefore still evict the green pods of a multi-hour canary guarded
-by a `maxUnavailable: 0` PDB. When the rollout must not be disrupted, run it outside the cluster's
-maintenance window or add a maintenance exclusion for its duration (see `gke-upgrades`).
-
-## Reading the code index from this install
-
-`references/compute-class-code-index.md` opens by telling its reader to clone the repository, and
-its "Code verification instructions" section runs `git log` and `git blame`. Those steps are for the
-user's own terminal: this install cannot reach GitHub, so follow the CRITICAL RULE above and hand
-them to the user. The index's `groupRulesByScore` entry names a function the upstream source does
-not have; do not cite it.

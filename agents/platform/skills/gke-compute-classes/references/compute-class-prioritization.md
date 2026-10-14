@@ -27,7 +27,7 @@
 -   **`flexStart` Ordering Rule**:
     -   DWS Flex Start priorities use queued capacity provisioning, which takes 3–15+ minutes to return a stockout signal.
     -   If placed high or middle in `priorities[]`, higher-tier backoffs expire during the queue wait, resetting Cluster Autoscaler to the top of the ladder.
-    -   *Best Practice*: Always place `flexStart: true` at the **very end** of `priorities[]`.
+    -   *Best Practice*: Place `flexStart: true` below every reservation and On-Demand rung, so it is the last non-preemptible tier (`Res -> OD -> DWS -> Spot`, as the CRITICAL AI/ML RULE and the Inference pattern below give); Spot may follow it. Keep the rungs above it few, and do not put it above On-Demand unless the queue wait is acceptable, as in the Prod Training pattern.
 -   **`min-nodes` Interaction with Scheduler**:
     -   `kube-scheduler` places incoming pods on existing idle capacity (held warm by `min-nodes`) *before* Cluster Autoscaler evaluates ComputeClass priorities.
     -   If lower-priority manual pools have idle capacity due to high `min-nodes`, pods immediately schedule onto those lower-priority nodes, bypassing preferred ComputeClass tiers entirely.
