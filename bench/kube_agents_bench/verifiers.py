@@ -130,12 +130,18 @@ _NO_TRANSCRIPT_REASON = (
     "agent execution (kube_agents_bench.transcript is empty), so this check "
     "could not be evaluated"
 )
-# A fenced code block, any info string, read by ``report_manifest``. The fence
-# may be indented (a block inside a list item); the body is dedented before it
-# is parsed. A lookahead, so every opener starts a candidate: a relayed answer
-# can wrap the worker's ```yaml block in a bare fence of its own, and the inner
-# block has to be read as well as the outer one.
-_MANIFEST_FENCE = re.compile(r"(?=^([ \t]*)(```|~~~)[^\n]*\n(.*?)^[ \t]*\2[ \t]*$)", re.MULTILINE | re.DOTALL)
+# A fence line read by ``report_manifest``, after any blockquote prefix: an
+# optional indent (a block inside a list item), a run of three or more
+# backticks or tildes, and the info string. CommonMark closes a block on a run
+# of the same character at least as long, with no info string.
+_FENCE_LINE = re.compile(r"^[ \t]*(`{3,}|~{3,})(.*)$")
+# The ``> `` prefix of a line inside a blockquote, nested quotes included.
+_BLOCKQUOTE_PREFIX = re.compile(r"^[ \t]*(?:>[ \t]?)+")
+# A shell heredoc opener (``kubectl apply -f - <<'EOF'``): its body is the
+# manifest when an answer shows the command rather than the bare YAML.
+_HEREDOC_OPENER = re.compile(r"<<-?[ \t]*['\"]?(\w+)['\"]?")
+# The kind whose ``items`` are the documents it wraps.
+_LIST_KIND = "List"
 # The Kubernetes label-selector operators ``report_manifest`` evaluates.
 _SELECTOR_IN = "In"
 _SELECTOR_NOT_IN = "NotIn"
@@ -738,18 +744,92 @@ class ManifestField(BaseModel):
     equals: list[str] = Field(min_length=1)
 
 
-def _manifest_documents(raw: str) -> list[dict[str, Any]]:
-    """Every mapping document in the report's fenced code blocks. A block
-    that does not parse as YAML (JSON included) is skipped: it is prose or
-    shell, not a manifest."""
-    documents = []
-    for match in _MANIFEST_FENCE.finditer(raw):
-        body = textwrap.dedent(match.group(3))
-        try:
-            loaded = list(yaml.safe_load_all(body))
-        except yaml.YAMLError:
+def _fenced_bodies(text: str) -> list[str]:
+    """The body of every fenced code block in ``text``, nested blocks too.
+
+    A line walker rather than a regex, so a bare fence closes only the block
+    that is open, a longer fence holds shorter ones, CRLF line ends and a
+    blockquote prefix are stripped, and a block left open runs to the end of
+    the text, as CommonMark has it. Each body is scanned again, so a relayed
+    answer that wraps the worker's ``yaml`` block in a fence of its own still
+    has the inner block read.
+    """
+    bodies: list[str] = []
+    fence = ""
+    quoted = False
+    lines: list[str] = []
+    for line in text.split("\n"):
+        line = line.rstrip("\r")
+        unquoted = _BLOCKQUOTE_PREFIX.sub("", line, count=1)
+        if not fence:
+            match = _FENCE_LINE.match(unquoted)
+            if match and not (match.group(1)[0] == "`" and "`" in match.group(2)):
+                fence, quoted, lines = match.group(1), unquoted != line, []
             continue
-        documents.extend(doc for doc in loaded if isinstance(doc, dict))
+        content = unquoted if quoted else line
+        match = _FENCE_LINE.match(content)
+        if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= len(fence) and not match.group(2).strip():
+            bodies.append("\n".join(lines))
+            fence = ""
+            continue
+        lines.append(content)
+    if fence:
+        bodies.append("\n".join(lines))
+    return bodies + [inner for body in bodies for inner in _fenced_bodies(body)]
+
+
+def _heredoc_bodies(body: str) -> list[str]:
+    """The text of every heredoc in a shell block, up to its terminator line."""
+    lines = body.split("\n")
+    found = []
+    for index, line in enumerate(lines):
+        match = _HEREDOC_OPENER.search(line)
+        if not match:
+            continue
+        rest = lines[index + 1 :]
+        end = next((i for i, text in enumerate(rest) if text.strip() == match.group(1)), len(rest))
+        found.append("\n".join(rest[:end]))
+    return found
+
+
+def _loaded_documents(body: str) -> list[Any]:
+    """The documents of ``body`` that load before any YAML error.
+
+    A block that is prose or shell yields nothing. A manifest followed, after
+    ``---``, by a line YAML refuses keeps the documents before it; one
+    followed by such a line with no ``---`` between is lost with it, since
+    the error falls inside the manifest's own document.
+    """
+    documents = []
+    try:
+        for document in yaml.safe_load_all(body):
+            documents.append(document)
+    except yaml.YAMLError:
+        pass
+    return documents
+
+
+def _flattened(document: Any) -> list[dict[str, Any]]:
+    """A mapping as itself; a sequence, or a ``kind: List``'s ``items``, as
+    the mappings it holds."""
+    if isinstance(document, list):
+        return [inner for item in document for inner in _flattened(item)]
+    if not isinstance(document, dict):
+        return []
+    if document.get("kind") == _LIST_KIND and isinstance(document.get("items"), list):
+        return [document] + _flattened(document["items"])
+    return [document]
+
+
+def _manifest_documents(raw: str) -> list[dict[str, Any]]:
+    """Every mapping document in the report's fenced code blocks, including
+    the heredocs of shell blocks and the items of a list. JSON is YAML."""
+    documents = []
+    for block in _fenced_bodies(raw):
+        body = textwrap.dedent(block)
+        for source in [body, *_heredoc_bodies(body)]:
+            for document in _loaded_documents(textwrap.dedent(source)):
+                documents.extend(_flattened(document))
     return documents
 
 
@@ -780,9 +860,16 @@ def _selects(selector: Any, labels: dict[str, str]) -> bool:
     for expression in expressions:
         if not isinstance(expression, dict):
             return False
-        key = str(expression.get("key"))
+        key = expression.get("key")
         operator = expression.get("operator")
-        values = [str(v) for v in expression.get("values") or []]
+        values = expression.get("values") or []
+        # What the API server refuses at admission selects nothing here: a
+        # missing key, In/NotIn without values, Exists/DoesNotExist with them.
+        if not isinstance(key, str) or not key or not isinstance(values, list):
+            return False
+        if (operator in (_SELECTOR_IN, _SELECTOR_NOT_IN)) != bool(values):
+            return False
+        values = [str(v) for v in values]
         present = key in labels
         if operator == _SELECTOR_IN:
             held = present and labels[key] in values
@@ -812,7 +899,9 @@ class ReportManifestVerifier(BaseVerifier):
     ``excludes``. The selector is evaluated the way Kubernetes evaluates it
     (``matchLabels`` and ``matchExpressions`` with ``In``, ``NotIn``,
     ``Exists`` and ``DoesNotExist``), so any spelling of the same selector is
-    the same answer. A manifest outside a fenced block is not read.
+    the same answer. A manifest outside a fenced block is not read; inside
+    one it is read from a bare document, a sequence or ``kind: List``, or a
+    shell heredoc.
 
     ``scope`` is ``report_contains``'s: ``final`` (the default) is what the
     user receives, ``full`` the accumulated output.

@@ -205,3 +205,53 @@ def test_a_manifest_inside_a_relayed_fence_is_read():
     inner = PDB_HEAD + "spec:\n  maxUnavailable: 0\n  selector:\n    matchLabels:\n      app: shop\n      version: green\n```"
     relayed = "The worker's result:\n```\n## Rollout-Scoped PDB\n\nApply this:\n\n" + inner + "\n\n## Afterwards\n```"
     assert _matches(relayed)
+
+
+GREEN_PDB = (
+    "apiVersion: policy/v1\nkind: PodDisruptionBudget\nmetadata:\n  name: shop-green-pdb\nspec:\n  maxUnavailable: 0\n"
+    "  selector:\n    matchLabels:\n      app: shop\n      version: green\n"
+)
+
+
+def test_longer_crlf_and_blockquoted_fences_are_read():
+    assert _matches("````yaml\n" + GREEN_PDB + "````")
+    assert _matches(("```yaml\n" + GREEN_PDB + "```").replace("\n", "\r\n"))
+    quoted = "".join(f"> {line}\n" for line in ("```yaml\n" + GREEN_PDB + "```").split("\n"))
+    assert _matches(quoted)
+    # A four-backtick relay holds the worker's three-backtick block whole.
+    assert _matches("````\nThe worker said:\n```yaml\n" + GREEN_PDB + "```\n````")
+
+
+def test_text_between_two_closed_blocks_is_not_a_block():
+    between = "```bash\nkubectl get pdb\n```\n" + GREEN_PDB + "```bash\nkubectl get pods\n```"
+    assert not _matches(between)
+
+
+def test_a_heredoc_or_a_list_carries_the_pdb():
+    assert _matches("```bash\nkubectl apply -f - <<'EOF'\n" + GREEN_PDB + "EOF\n```")
+    assert _matches("```bash\ncat <<EOF | kubectl apply -f -\n" + GREEN_PDB + "EOF\n```")
+    as_sequence = "".join(("- " if i == 0 else "  ") + line + "\n" for i, line in enumerate(GREEN_PDB.splitlines()))
+    assert _matches("```yaml\n" + as_sequence + "```")
+    as_list = "apiVersion: v1\nkind: List\nitems:\n" + as_sequence
+    assert _matches("```yaml\n" + as_list + "```")
+
+
+def test_a_refused_line_after_a_separator_keeps_the_pdb():
+    assert _matches("```yaml\n" + GREEN_PDB + "---\n**bold**\n```")
+    assert _matches("```yaml\n" + GREEN_PDB + "---\n\tkind: Service\n```")
+    # With no separator the refused line falls inside the PDB's own document.
+    assert not _matches("```yaml\n" + GREEN_PDB + "kubectl patch pdb shop-green-pdb -p '{}'\n```")
+
+
+def test_a_selector_the_api_server_would_refuse_selects_nothing():
+    for expression in (
+        "    - operator: NotIn\n      values: [blue]\n",
+        "    - key: version\n      operator: NotIn\n",
+        "    - key: version\n      operator: Exists\n      values: [green]\n",
+    ):
+        check = ReportManifestVerifier(
+            type="report_manifest", kind="PodDisruptionBudget", selects=[{"app": "shop", "version": "green"}]
+        )
+        report = PDB_HEAD + "spec:\n  maxUnavailable: 0\n  selector:\n    matchExpressions:\n" + expression + "```"
+        transcript.set(report, [], final_message=report)
+        assert not check.verify(TIMEOUT_SEC).success, expression
