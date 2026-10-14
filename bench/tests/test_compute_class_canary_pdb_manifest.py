@@ -5,7 +5,8 @@ spelling (``maxUnavailable: 0``, ``minAvailable: 100%``). Each parses the
 answer's fenced code blocks as YAML, so the selector and the budget come from
 one document and a token in prose, a comment, a second document or another
 ``matchExpressions`` entry cannot stand in for either. The selector has to
-take ``app: shop, version: green`` and not ``app: shop, version: blue``.
+take ``app: shop, version: green`` and not ``app: shop, version: blue`` or a
+pod with no labels, and the budget is read as the API server reads it.
 """
 
 from __future__ import annotations
@@ -48,7 +49,9 @@ def _matches(report: str) -> bool:
 def test_a_version_scoped_zero_budget_pdb_passes():
     for spec in (
         "spec:\n  maxUnavailable: 0\n  selector:\n    matchLabels:\n      app: shop\n      version: green\n```",
-        'spec:\n  maxUnavailable: "0"\n  selector:\n    matchLabels:\n      app: shop\n      version: "green"\n```',
+        'spec:\n  maxUnavailable: 0\n  selector:\n    matchLabels:\n      app: shop\n      version: "green"\n```',
+        "spec:\n  maxUnavailable: 0\n  unhealthyPodEvictionPolicy: IfHealthyBudget\n  selector:\n"
+        "    matchLabels: {app: shop, version: green}\n```",
         "spec:\n  minAvailable: 100%\n  selector:\n    matchLabels: {app: shop, version: green}\n```",
         "spec:\n  selector: {matchLabels: {app: shop, version: green}}\n  maxUnavailable: 0\n```",
         "spec:\n  maxUnavailable: 0\n  selector:\n    matchExpressions:\n    - key: version\n      operator: In\n"
@@ -159,6 +162,12 @@ def test_a_selector_that_also_takes_blue_fails():
         assert not _matches(report), values
     empty = PDB_HEAD + "spec:\n  maxUnavailable: 0\n  selector: {}\n```"
     assert not _matches(empty)
+    # Not blue is not green: this freezes every other pod in the namespace.
+    not_blue = PDB_HEAD + (
+        "spec:\n  maxUnavailable: 0\n  selector:\n    matchExpressions:\n    - key: version\n"
+        "      operator: NotIn\n      values: [blue]\n```"
+    )
+    assert not _matches(not_blue)
 
 
 def test_a_line_ending_on_the_kind_does_not_open_a_document():
@@ -185,7 +194,7 @@ def test_a_blank_line_json_kind_last_or_an_indented_fence_still_parses():
     )
     kind_last = (
         '```json\n{"spec": {"maxUnavailable": 0, "selector": {"matchLabels": {"app": "shop", "version": "green"}}},'
-        ' "kind": "PodDisruptionBudget"}\n```'
+        ' "kind": "PodDisruptionBudget", "apiVersion": "policy/v1"}\n```'
     )
     in_a_list = "1. Apply this:\n\n   " + (
         PDB_HEAD + "spec:\n  maxUnavailable: 0\n  selector:\n    matchLabels:\n      app: shop\n      version: green\n```"
@@ -223,8 +232,29 @@ def test_longer_crlf_and_blockquoted_fences_are_read():
 
 
 def test_text_between_two_closed_blocks_is_not_a_block():
-    between = "```bash\nkubectl get pdb\n```\n" + GREEN_PDB + "```bash\nkubectl get pods\n```"
-    assert not _matches(between)
+    for second in ("```bash\nkubectl get pods\n```", "```\nkubectl get pods\n```"):
+        between = "```bash\nkubectl get pdb\n```\n" + GREEN_PDB + second
+        assert not _matches(between), second
+
+
+def test_an_impossible_date_elsewhere_does_not_lose_the_pdb():
+    assert _matches("```yaml\n" + GREEN_PDB + "---\nendTime: 2026-09-31T00:00:00Z\n```")
+    assert _matches("```yaml\nendTime: 2026-02-30\n```\n```yaml\n" + GREEN_PDB + "```")
+
+
+def test_a_budget_the_api_server_would_refuse_or_bypass_fails():
+    zero = PDB_HEAD + "spec:\n  maxUnavailable: 0\n"
+    selector = "  selector:\n    matchLabels: {app: shop, version: green}\n```"
+    for report in (
+        PDB_HEAD + 'spec:\n  maxUnavailable: "0"\n' + selector,
+        PDB_HEAD + "spec:\n  maxUnavailable: false\n" + selector,
+        zero + "  minAvailable: 50%\n" + selector,
+        PDB_HEAD + "spec:\n  minAvailable: 100%\n  maxUnavailable: 0\n" + selector,
+        zero + "  unhealthyPodEvictionPolicy: AlwaysAllow\n" + selector,
+        PDB_HEAD.replace("policy/v1", "policy/v1beta1") + "spec:\n  maxUnavailable: 0\n" + selector,
+        "```yaml\nkind: PodDisruptionBudget\nspec:\n  maxUnavailable: 0\n" + selector,
+    ):
+        assert not _matches(report), report
 
 
 def test_a_heredoc_or_a_list_carries_the_pdb():

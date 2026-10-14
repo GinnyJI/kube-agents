@@ -735,13 +735,34 @@ class ReportContainsVerifier(BaseVerifier):
 
 
 class ManifestField(BaseModel):
-    """One field a ``report_manifest`` document must carry: the value at
-    ``path`` (dot-separated keys) is one of ``equals``, compared as strings so
-    ``0`` and ``"0"`` are the same answer."""
+    """One field a ``report_manifest`` document must carry or leave out.
+
+    With ``equals``, the value at ``path`` (dot-separated keys) is one of the
+    entries; with ``absent_or``, the path is absent or its value is one of
+    them, and an empty list means it must be absent. Each entry is a YAML
+    scalar compared by type as well as value, the way the API server reads
+    it: ``"0"`` is the integer 0 and matches ``maxUnavailable: 0``, not the
+    quoted ``maxUnavailable: "0"`` an ``IntOrString`` field refuses; write
+    ``'"0"'`` to accept the string.
+    """
 
     model_config = ConfigDict(extra="forbid")
     path: str
-    equals: list[str] = Field(min_length=1)
+    equals: list[str] | None = Field(default=None, min_length=1)
+    absent_or: list[str] | None = None
+
+    @model_validator(mode="after")
+    def _one_form(self) -> "ManifestField":
+        if (self.equals is None) == (self.absent_or is None):
+            raise ValueError("a manifest field needs exactly one of equals or absent_or")
+        return self
+
+    def holds(self, document: dict[str, Any]) -> bool:
+        value = _at_path(document, self.path)
+        if value is None:
+            return self.equals is None
+        accepted = [yaml.safe_load(entry) for entry in (self.equals or self.absent_or or [])]
+        return any(type(value) is type(entry) and value == entry for entry in accepted)
 
 
 def _fenced_bodies(text: str) -> list[str]:
@@ -804,7 +825,9 @@ def _loaded_documents(body: str) -> list[Any]:
     try:
         for document in yaml.safe_load_all(body):
             documents.append(document)
-    except yaml.YAMLError:
+    except (yaml.YAMLError, ValueError):
+        # PyYAML builds an impossible timestamp (2026-02-30) with datetime,
+        # whose ValueError is outside the YAMLError hierarchy.
         pass
     return documents
 
@@ -894,7 +917,7 @@ class ReportManifestVerifier(BaseVerifier):
     take a token from prose, a comment, a second document or another list
     entry. This check parses instead: every fenced code block in the answer is
     loaded as YAML (JSON is YAML), and the check passes when a single document
-    has ``kind``, every one of ``fields`` and, when given, a label selector at
+    has ``kind``, meets every one of ``fields`` and, when given, a label selector at
     ``selector_path`` that selects every label set in ``selects`` and none in
     ``excludes``. The selector is evaluated the way Kubernetes evaluates it
     (``matchLabels`` and ``matchExpressions`` with ``In``, ``NotIn``,
@@ -924,10 +947,8 @@ class ReportManifestVerifier(BaseVerifier):
     def _matches(self, document: dict[str, Any]) -> bool:
         if document.get("kind") != self.kind:
             return False
-        for field in self.fields:
-            value = _at_path(document, field.path)
-            if value is None or str(value) not in field.equals:
-                return False
+        if not all(field.holds(document) for field in self.fields):
+            return False
         if self.selects or self.excludes:
             selector = _at_path(document, self.selector_path)
             if not all(_selects(selector, labels) for labels in self.selects):

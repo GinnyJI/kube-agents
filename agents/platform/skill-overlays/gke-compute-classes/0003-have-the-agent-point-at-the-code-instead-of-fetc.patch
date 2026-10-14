@@ -1,6 +1,6 @@
 Subject: Have the agent read the code through inspect-repository instead of cloning it
 
-Why: This install's terminal has no `git` and cannot clone or fetch from GitHub itself, so the CODE-FIRST rule sends the agent to the `inspect-repository` skill, which clones broker-side and returns files at a cited `sha` but no history; `git log -S` and `git blame` are handed to the user, and the agent never states a version or date it has not read. The code index's clone preamble and verification steps are rewritten for the same reason, and its `groupRulesByScore` symbol, which the upstream source does not have, is dropped so the agent does not hand the user a symbol to search for that is not there.
+Why: This install's terminal has no `git` and cannot clone or fetch from GitHub itself, so the CODE-FIRST rule sends the agent to the `inspect-repository` skill, which clones broker-side and returns files at a cited `sha` but no history; `git log -S` and `git blame` are handed to the user, and the agent never states a version or date it has not read. The code index's clone preamble is rewritten to `inspect-repository`'s order (`grep` the indexed symbol, then `fetch` the path `grep` returned, never an index path unread, since upstream's paths move), its verification steps are addressed to the user for the same reason, and its `groupRulesByScore` symbol, which the upstream source does not have, is dropped so the agent does not hand the user a symbol to search for that is not there.
 Local-Issue: #2692
 Upstream-Issue: none (specific to this repository)
 Retire-When: never; the install's terminal has no GitHub egress or `git` by design
@@ -25,7 +25,7 @@ diff --git a/references/compute-class-code-index.md b/references/compute-class-c
  This reference maps GKE ComputeClasses behaviors, lifecycle events, and priority rules directly to source files and key function symbols in the open-source repository: [https://github.com/GoogleCloudPlatform/cluster-autoscaler](https://github.com/GoogleCloudPlatform/cluster-autoscaler).
  
 -When verifying behavior or investigating edge cases, clone the repository or fetch raw source files directly from GitHub.
-+This install's terminal cannot clone or fetch from GitHub itself: read the files below with the `inspect-repository` skill (`open`, then `grep` or `fetch` the path from this index). It returns source without history, so leave `git log -S` and `git blame` to the user in their own clone.
++This install's terminal cannot clone or fetch from GitHub itself: read the code with the `inspect-repository` skill: `open` the repository, `grep` for the symbol this index names, then `fetch` the path `grep` returned. The paths below are where upstream last saw each symbol and may have moved, so do not `fetch` one unread, and a symbol `grep` cannot find is not proof the behaviour is gone. The skill returns source without history, so leave `git log -S` and `git blame` to the user in their own clone.
  
  ---
  
@@ -47,3 +47,9 @@ diff --git a/references/compute-class-code-index.md b/references/compute-class-c
  1. **Search Git Log by Symbol**:
     ```bash
     git log -S "<function_or_const_name>" -p -- <filepath>
+@@ -61,4 +61,4 @@ When troubleshooting or investigating behavioral changes:
+    ```
+ 3. **Trace Behavioral Evolution**:
+    - Determine the commit date and message when a logic branch was altered.
+-   - If the exact GKE patch version is unreleased or not yet documented, communicate the commit hash, upstream PR, and date range to the user.
++   - If the exact GKE patch version is unreleased or not yet documented, the commit hash, upstream PR, and date range are the answer to record.

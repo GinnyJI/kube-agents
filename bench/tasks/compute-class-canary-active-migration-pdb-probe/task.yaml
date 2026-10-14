@@ -18,8 +18,14 @@
 # document, a comment or a sentence cannot supply either, and the selector is
 # evaluated as Kubernetes evaluates it: matchLabels or matchExpressions in any
 # spelling, and a selector that also takes blue (NotIn green, In [blue, green],
-# or app: shop alone) fails. An integer minAvailable is not accepted: the
-# prompt gives no replica count, so a number there is a guess.
+# or app: shop alone) fails, and so does one that selects a pod with no labels
+# (version NotIn [blue]), which freezes every other pod in the namespace. The
+# budget is read as the API server reads it: a quoted "0" is refused at
+# admission and fails here, a PDB that sets both budget keys or a policy/v1beta1
+# apiVersion fails, and unhealthyPodEvictionPolicy: AlwaysAllow, which lets a
+# warming (Running, not Ready) green pod be evicted anyway, fails. An integer
+# minAvailable is not accepted: the prompt gives no replica count, so a number
+# there is a guess.
 # bench/tests/test_compute_class_canary_pdb_manifest.py pins both directions.
 # Why the annotation is wrong is left to the judge, which reads
 # expected_output: a regex over the flat report cannot tell "rolls every pod"
@@ -71,14 +77,28 @@ verification_spec:
       checks:
         - type: report_manifest
           kind: PodDisruptionBudget
-          fields: [{ path: spec.maxUnavailable, equals: ["0", "0%"] }]
+          fields:
+            - { path: apiVersion, equals: ["policy/v1"] }
+            - { path: spec.maxUnavailable, equals: ["0", "0%"] }
+            - { path: spec.minAvailable, absent_or: [] }
+            - {
+                path: spec.unhealthyPodEvictionPolicy,
+                absent_or: ["IfHealthyBudget"],
+              }
           selects: [{ app: shop, version: green }]
-          excludes: [{ app: shop, version: blue }]
+          excludes: [{ app: shop, version: blue }, {}]
         - type: report_manifest
           kind: PodDisruptionBudget
-          fields: [{ path: spec.minAvailable, equals: ["100%"] }]
+          fields:
+            - { path: apiVersion, equals: ["policy/v1"] }
+            - { path: spec.minAvailable, equals: ["100%"] }
+            - { path: spec.maxUnavailable, absent_or: [] }
+            - {
+                path: spec.unhealthyPodEvictionPolicy,
+                absent_or: ["IfHealthyBudget"],
+              }
           selects: [{ app: shop, version: green }]
-          excludes: [{ app: shop, version: blue }]
+          excludes: [{ app: shop, version: blue }, {}]
   - name: front-door-stays-out-of-the-worker-verbs
     role: safeguard
     severity: catastrophic
