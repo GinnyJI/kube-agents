@@ -60,6 +60,7 @@ import os
 import re
 import shlex
 import subprocess
+import textwrap
 import time
 import urllib.error
 import urllib.parse
@@ -118,6 +119,7 @@ __all__ = [
     "ReplayCardVerifier",
     "ReplyIsSilentVerifier",
     "ReportContainsVerifier",
+    "ReportManifestVerifier",
     "SandboxTreeMatchesImageVerifier",
     "ToolCalledVerifier",
     "WorkerCommandsVerifier",
@@ -128,6 +130,18 @@ _NO_TRANSCRIPT_REASON = (
     "agent execution (kube_agents_bench.transcript is empty), so this check "
     "could not be evaluated"
 )
+# A fenced code block, any info string, read by ``report_manifest``. The fence
+# may be indented (a block inside a list item); the body is dedented before it
+# is parsed. A lookahead, so every opener starts a candidate: a relayed answer
+# can wrap the worker's ```yaml block in a bare fence of its own, and the inner
+# block has to be read as well as the outer one.
+_MANIFEST_FENCE = re.compile(r"(?=^([ \t]*)(```|~~~)[^\n]*\n(.*?)^[ \t]*\2[ \t]*$)", re.MULTILINE | re.DOTALL)
+# The Kubernetes label-selector operators ``report_manifest`` evaluates.
+_SELECTOR_IN = "In"
+_SELECTOR_NOT_IN = "NotIn"
+_SELECTOR_EXISTS = "Exists"
+_SELECTOR_DOES_NOT_EXIST = "DoesNotExist"
+_PATH_SEPARATOR = "."
 _UNREACHED_SLOT_REASON = (
     "a seeded cluster this check's patterns require a line about was not reached before the run, "
     "so a missing line about it is the environment's gap, not the agent's miss"
@@ -711,6 +725,154 @@ class ReportContainsVerifier(BaseVerifier):
             success=True,
             elapsed_time=time.monotonic() - start,
             reason="report contains " + ", ".join(satisfied),
+        )
+
+
+class ManifestField(BaseModel):
+    """One field a ``report_manifest`` document must carry: the value at
+    ``path`` (dot-separated keys) is one of ``equals``, compared as strings so
+    ``0`` and ``"0"`` are the same answer."""
+
+    model_config = ConfigDict(extra="forbid")
+    path: str
+    equals: list[str] = Field(min_length=1)
+
+
+def _manifest_documents(raw: str) -> list[dict[str, Any]]:
+    """Every mapping document in the report's fenced code blocks. A block
+    that does not parse as YAML (JSON included) is skipped: it is prose or
+    shell, not a manifest."""
+    documents = []
+    for match in _MANIFEST_FENCE.finditer(raw):
+        body = textwrap.dedent(match.group(3))
+        try:
+            loaded = list(yaml.safe_load_all(body))
+        except yaml.YAMLError:
+            continue
+        documents.extend(doc for doc in loaded if isinstance(doc, dict))
+    return documents
+
+
+def _at_path(document: dict[str, Any], path: str) -> Any:
+    node: Any = document
+    for key in path.split(_PATH_SEPARATOR):
+        if not isinstance(node, dict) or key not in node:
+            return None
+        node = node[key]
+    return node
+
+
+def _selects(selector: Any, labels: dict[str, str]) -> bool:
+    """Whether a Kubernetes label selector selects a pod with ``labels``.
+
+    A missing selector selects nothing (``policy/v1``); an empty one selects
+    everything. A malformed selector selects nothing, so it can never stand in
+    for a correct one.
+    """
+    if not isinstance(selector, dict):
+        return False
+    match_labels = selector.get("matchLabels") or {}
+    expressions = selector.get("matchExpressions") or []
+    if not isinstance(match_labels, dict) or not isinstance(expressions, list):
+        return False
+    if any(labels.get(str(key)) != str(value) for key, value in match_labels.items()):
+        return False
+    for expression in expressions:
+        if not isinstance(expression, dict):
+            return False
+        key = str(expression.get("key"))
+        operator = expression.get("operator")
+        values = [str(v) for v in expression.get("values") or []]
+        present = key in labels
+        if operator == _SELECTOR_IN:
+            held = present and labels[key] in values
+        elif operator == _SELECTOR_NOT_IN:
+            held = not present or labels[key] not in values
+        elif operator == _SELECTOR_EXISTS:
+            held = present
+        elif operator == _SELECTOR_DOES_NOT_EXIST:
+            held = not present
+        else:
+            return False
+        if not held:
+            return False
+    return True
+
+
+@VERIFIERS.register("report_manifest")
+class ReportManifestVerifier(BaseVerifier):
+    """Whether the answer carries one manifest that does what the case asks.
+
+    ``report_contains`` reads text, so a regex standing in for a manifest can
+    take a token from prose, a comment, a second document or another list
+    entry. This check parses instead: every fenced code block in the answer is
+    loaded as YAML (JSON is YAML), and the check passes when a single document
+    has ``kind``, every one of ``fields`` and, when given, a label selector at
+    ``selector_path`` that selects every label set in ``selects`` and none in
+    ``excludes``. The selector is evaluated the way Kubernetes evaluates it
+    (``matchLabels`` and ``matchExpressions`` with ``In``, ``NotIn``,
+    ``Exists`` and ``DoesNotExist``), so any spelling of the same selector is
+    the same answer. A manifest outside a fenced block is not read.
+
+    ``scope`` is ``report_contains``'s: ``final`` (the default) is what the
+    user receives, ``full`` the accumulated output.
+    """
+
+    type: Literal["report_manifest"]
+    kind: str
+    fields: list[ManifestField] = Field(default_factory=list)
+    selector_path: str = "spec.selector"
+    selects: list[dict[str, str]] = Field(default_factory=list)
+    excludes: list[dict[str, str]] = Field(default_factory=list)
+    scope: Literal["final", "full"] = "final"
+
+    @model_validator(mode="after")
+    def _asserts_something(self) -> "ReportManifestVerifier":
+        if not (self.fields or self.selects or self.excludes):
+            raise ValueError("report_manifest needs fields, selects or excludes; kind alone asserts only a word")
+        return self
+
+    def _matches(self, document: dict[str, Any]) -> bool:
+        if document.get("kind") != self.kind:
+            return False
+        for field in self.fields:
+            value = _at_path(document, field.path)
+            if value is None or str(value) not in field.equals:
+                return False
+        if self.selects or self.excludes:
+            selector = _at_path(document, self.selector_path)
+            if not all(_selects(selector, labels) for labels in self.selects):
+                return False
+            if any(_selects(selector, labels) for labels in self.excludes):
+                return False
+        return True
+
+    def verify(self, timeout_sec: float) -> VerificationResult:
+        start = time.monotonic()
+        snap = transcript.get()
+        if snap is None:
+            return VerificationResult(
+                success=False,
+                status="error",
+                elapsed_time=time.monotonic() - start,
+                reason=_NO_TRANSCRIPT_REASON,
+            )
+        raw = snap.final_message if self.scope == "final" else snap.output
+        documents = _manifest_documents(raw)
+        same_kind = [d for d in documents if d.get("kind") == self.kind]
+        if any(self._matches(d) for d in same_kind):
+            return VerificationResult(
+                success=True,
+                elapsed_time=time.monotonic() - start,
+                reason=f"a {self.kind} manifest in the answer meets every condition",
+            )
+        return VerificationResult(
+            success=False,
+            elapsed_time=time.monotonic() - start,
+            reason=(
+                f"no {self.kind} manifest in the answer meets every condition: "
+                f"{len(documents)} manifest document(s) parsed, {len(same_kind)} of kind {self.kind}"
+            ),
         )
 
 

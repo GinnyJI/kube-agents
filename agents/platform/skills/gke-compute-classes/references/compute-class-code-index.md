@@ -2,7 +2,7 @@
 
 This reference maps GKE ComputeClasses behaviors, lifecycle events, and priority rules directly to source files and key function symbols in the open-source repository: [https://github.com/GoogleCloudPlatform/cluster-autoscaler](https://github.com/GoogleCloudPlatform/cluster-autoscaler).
 
-This install's terminal cannot clone or fetch from GitHub, so do not try: name the file and symbol from this index for the user to check in their own clone.
+This install's terminal cannot clone or fetch from GitHub itself: read the files below with the `inspect-repository` skill (`open`, then `grep` or `fetch` the path from this index). It returns source without history, so leave `git log -S` and `git blame` to the user in their own clone.
 
 ---
 

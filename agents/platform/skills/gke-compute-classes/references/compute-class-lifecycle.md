@@ -110,7 +110,7 @@ spec:
             memory: "4Gi"
 ```
 
-> **CRITICAL K8S DISTINCTION:** PDBs and `safe-to-evict: false` ONLY protect against *voluntary* disruptions (ActiveMigration, scale-down, upgrades). They **DO NOT** prevent *involuntary* Spot VM preemptions. Spot nodes can be reclaimed at any time, regardless of PDBs.
+> **CRITICAL K8S DISTINCTION:** PDBs and `safe-to-evict: false` ONLY protect against *voluntary* disruptions (ActiveMigration, scale-down; a node upgrade honours a PDB for at most one hour, per the table above). They **DO NOT** prevent *involuntary* Spot VM preemptions. Spot nodes can be reclaimed at any time, regardless of PDBs.
 
 ## Updating a ComputeClass
 

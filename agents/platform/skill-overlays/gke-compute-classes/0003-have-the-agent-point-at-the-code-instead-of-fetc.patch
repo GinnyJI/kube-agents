@@ -1,9 +1,9 @@
-Subject: Have the agent point at the code instead of fetching it
+Subject: Have the agent read the code through inspect-repository instead of cloning it
 
-Why: This install's terminal cannot clone or fetch from GitHub, so the CODE-FIRST rule must have the agent name the package or symbol for the user to check and never state a version or date it has not read. The code index's clone preamble and verification steps are rewritten for the same reason, and its `groupRulesByScore` symbol, which the upstream source does not have, is dropped so the agent does not hand the user a symbol to search for that is not there.
+Why: This install's terminal has no `git` and cannot clone or fetch from GitHub itself, so the CODE-FIRST rule sends the agent to the `inspect-repository` skill, which clones broker-side and returns files at a cited `sha` but no history; `git log -S` and `git blame` are handed to the user, and the agent never states a version or date it has not read. The code index's clone preamble and verification steps are rewritten for the same reason, and its `groupRulesByScore` symbol, which the upstream source does not have, is dropped so the agent does not hand the user a symbol to search for that is not there.
 Local-Issue: #2692
 Upstream-Issue: none (specific to this repository)
-Retire-When: never; the install has no GitHub egress by design
+Retire-When: never; the install's terminal has no GitHub egress or `git` by design
 
 diff --git a/SKILL.md b/SKILL.md
 --- a/SKILL.md
@@ -13,7 +13,7 @@ diff --git a/SKILL.md b/SKILL.md
  
  ## CRITICAL RULES
 -- **CODE-FIRST VERIFICATION (OPEN-SOURCE CODEBASE):** GKE Cluster Autoscaler and ComputeClasses are open-sourced at `https://github.com/GoogleCloudPlatform/cluster-autoscaler`. When user questions challenge or explore undocumented/subtle behaviors, or when guidance is not explicitly established in this skill, **VERIFY BEHAVIOR DIRECTLY IN CODE** (via local repository clone or fetching raw files from GitHub). Check `git log -S` and `git blame` to identify the exact commit and date when behavior changed, and communicate version/date ranges to the user (e.g. *"This behavior changed on July 20, 2026 in upstream commit 129daa3756..."*). See `references/compute-class-code-index.md` for exact package and symbol mappings.
-+- **CODE-FIRST VERIFICATION (OPEN-SOURCE CODEBASE):** GKE Cluster Autoscaler and ComputeClasses are open-sourced at `https://github.com/GoogleCloudPlatform/cluster-autoscaler`. When user questions challenge or explore undocumented/subtle behaviors, or when guidance is not explicitly established in this skill, **SAY SO AND POINT AT THE CODE**: this install's terminal cannot clone or fetch from GitHub, so do not try. Name the package or symbol from the code index for the user to check with `git log -S` and `git blame`, and do not state a version or date range you have not read. See `references/compute-class-code-index.md` for exact package and symbol mappings.
++- **CODE-FIRST VERIFICATION (OPEN-SOURCE CODEBASE):** GKE Cluster Autoscaler and ComputeClasses are open-sourced at `https://github.com/GoogleCloudPlatform/cluster-autoscaler`. When user questions challenge or explore undocumented/subtle behaviors, or when guidance is not explicitly established in this skill, **READ THE CODE WITH THE `inspect-repository` SKILL**: this install's terminal has no `git` and cannot clone or fetch from GitHub itself, but `inspect-repository` clones broker-side and lets you `grep` and `fetch` files at the cloned `sha`. Start from the package or symbol in the code index and cite the commit you read. It returns files without history, so `git log -S` and `git blame` are the user's to run: name the symbol for them, and do not state a version or date range you have not read. See `references/compute-class-code-index.md` for exact package and symbol mappings.
  
  ## Engagement Rules: Generalized First, Refine Later
  
@@ -25,7 +25,7 @@ diff --git a/references/compute-class-code-index.md b/references/compute-class-c
  This reference maps GKE ComputeClasses behaviors, lifecycle events, and priority rules directly to source files and key function symbols in the open-source repository: [https://github.com/GoogleCloudPlatform/cluster-autoscaler](https://github.com/GoogleCloudPlatform/cluster-autoscaler).
  
 -When verifying behavior or investigating edge cases, clone the repository or fetch raw source files directly from GitHub.
-+This install's terminal cannot clone or fetch from GitHub, so do not try: name the file and symbol from this index for the user to check in their own clone.
++This install's terminal cannot clone or fetch from GitHub itself: read the files below with the `inspect-repository` skill (`open`, then `grep` or `fetch` the path from this index). It returns source without history, so leave `git log -S` and `git blame` to the user in their own clone.
  
  ---
  

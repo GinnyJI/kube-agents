@@ -1,6 +1,6 @@
 Subject: Reconcile the `flexStart` placement rule with the AI/ML ladder
 
-Why: The synced rule said to put `flexStart: true` at the very end of `priorities[]`, while the CRITICAL AI/ML RULE, the Inference pattern and its asset put Spot after DWS; the rule now says to make Flex the last non-preemptible tier, which keeps its queue-wait reason and agrees with the ladder, and names Prod Training as the case that accepts the wait above On-Demand.
+Why: The synced rule said to put `flexStart: true` at the very end of `priorities[]`, while the CRITICAL AI/ML RULE, the Inference pattern and its asset put Spot after DWS; the rule now says to make Flex the last non-preemptible tier, which keeps its queue-wait reason and agrees with the ladder, and names Prod Training as the case that accepts the wait above On-Demand; the Prod Training row's rationale now says the same instead of calling its DWS-above-OD order "Flex at bottom".
 Local-Issue: #2692
 Upstream-Issue: none filed yet
 Retire-When: when upstream states one `flexStart` placement across SKILL.md and the prioritization reference
@@ -29,3 +29,12 @@ diff --git a/references/compute-class-prioritization.md b/references/compute-cla
  -   **`min-nodes` Interaction with Scheduler**:
      -   `kube-scheduler` places incoming pods on existing idle capacity (held warm by `min-nodes`) *before* Cluster Autoscaler evaluates ComputeClass priorities.
      -   If lower-priority manual pools have idle capacity due to high `min-nodes`, pods immediately schedule onto those lower-priority nodes, bypassing preferred ComputeClass tiers entirely.
+@@ -44,7 +44,7 @@
+ Pattern        | Priority Order           | Rationale                                                                                   | Asset
+ -------------- | ------------------------ | ------------------------------------------------------------------------------------------- | -----
+ Inference      | Res -> OD -> DWS -> Spot | Accelerator node startup is slow. Avoid Spot preemption risk for latency-sensitive serving. | `genai-inference-g4-compute-class.yaml`
+-Prod Training  | Res -> DWS -> OD -> Spot | DWS wait acceptable. Spot preemption disruptive. Put DWS before Spot; Flex at bottom of non-preemptible tiers. | `tpu-v5e-training-compute-class.yaml`
++Prod Training  | Res -> DWS -> OD -> Spot | DWS wait acceptable. Spot preemption disruptive. Put DWS before Spot; here DWS deliberately sits above OD, the exception to the Flex-last rule. | `tpu-v5e-training-compute-class.yaml`
+ Dev Training   | Spot -> OD               | Spot for cost; OD floor unblocks dev.                                                       |
+ Cost Batch     | Spot -> OD               | Use `priorityScore` to pick cheapest Spot family.                                           | `spot-cost-tiebreak-compute-class.yaml`
+ Latency Hybrid | Manual -> Auto-creation  | Skip auto-creation delay by hitting warm pools (limit manual pools to ≤6–8).                | `manual-pool-tiebreak-compute-class.yaml`
