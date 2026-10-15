@@ -1081,3 +1081,8 @@
 # publishing. deployer: noop; reads the seeded fleet's idle-nodepool role.
 # Nightly rather than presubmit for the collector's full sweep.
 ./tasks/cost-chat-request-runs-collector/task.yaml
+
+# gke-cluster-autoscaler skill probe: on GKE 1.36.3-gke.1244000 or later a
+# zonal stockout cools down only its own zone, so the healthy zones keep
+# provisioning the preferred tier. deployer: noop, transcript-only.
+./tasks/autoscaler-zonal-stockout-cooldown-scope-probe/task.yaml
