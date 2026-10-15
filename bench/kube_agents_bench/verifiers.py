@@ -137,9 +137,11 @@ _NO_TRANSCRIPT_REASON = (
 _FENCE_LINE = re.compile(r"^[ \t]*(`{3,}|~{3,})(.*)$")
 # The ``> `` prefix of a line inside a blockquote, nested quotes included.
 _BLOCKQUOTE_PREFIX = re.compile(r"^[ \t]*(?:>[ \t]?)+")
+# The marker of a list item whose first line opens a fence (``- ```yaml``).
+_LIST_MARKER_PREFIX = re.compile(r"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+")
 # A shell heredoc opener (``kubectl apply -f - <<'EOF'``): its body is the
 # manifest when an answer shows the command rather than the bare YAML.
-_HEREDOC_OPENER = re.compile(r"<<-?[ \t]*['\"]?(\w+)['\"]?")
+_HEREDOC_OPENER = re.compile(r"<<-?[ \t]*['\"]?([\w.-]+)['\"]?")
 # The kind whose ``items`` are the documents it wraps.
 _LIST_KIND = "List"
 # The Kubernetes label-selector operators ``report_manifest`` evaluates.
@@ -737,7 +739,8 @@ class ReportContainsVerifier(BaseVerifier):
 class ManifestField(BaseModel):
     """One field a ``report_manifest`` document must carry or leave out.
 
-    With ``equals``, the value at ``path`` (dot-separated keys) is one of the
+    With ``equals``, the value at ``path`` (dot-separated keys, so a key that
+    itself contains a dot, such as a label name, cannot be addressed) is one of the
     entries; with ``absent_or``, the path is absent or its value is one of
     them, and an empty list means it must be absent. Each entry is a YAML
     scalar compared by type as well as value, the way the API server reads
@@ -770,7 +773,8 @@ def _fenced_bodies(text: str) -> list[str]:
 
     A line walker rather than a regex, so a bare fence closes only the block
     that is open, a longer fence holds shorter ones, CRLF line ends and a
-    blockquote prefix are stripped, and a block left open runs to the end of
+    blockquote prefix are stripped, a fence may open on a list item's first
+    line, and a block left open runs to the end of
     the text, as CommonMark has it. Each body is scanned again, so a relayed
     answer that wraps the worker's ``yaml`` block in a fence of its own still
     has the inner block read.
@@ -783,7 +787,7 @@ def _fenced_bodies(text: str) -> list[str]:
         line = line.rstrip("\r")
         unquoted = _BLOCKQUOTE_PREFIX.sub("", line, count=1)
         if not fence:
-            match = _FENCE_LINE.match(unquoted)
+            match = _FENCE_LINE.match(_LIST_MARKER_PREFIX.sub("", unquoted, count=1))
             if match and not (match.group(1)[0] == "`" and "`" in match.group(2)):
                 fence, quoted, lines = match.group(1), unquoted != line, []
             continue
@@ -819,16 +823,22 @@ def _loaded_documents(body: str) -> list[Any]:
     A block that is prose or shell yields nothing. A manifest followed, after
     ``---``, by a line YAML refuses keeps the documents before it; one
     followed by such a line with no ``---`` between is lost with it, since
-    the error falls inside the manifest's own document.
+    the error falls inside the manifest's own document. JSON that YAML
+    refuses (tab indentation) is read as JSON.
     """
     documents = []
     try:
         for document in yaml.safe_load_all(body):
             documents.append(document)
-    except (yaml.YAMLError, ValueError):
+    except (yaml.YAMLError, ValueError, RecursionError):
         # PyYAML builds an impossible timestamp (2026-02-30) with datetime,
-        # whose ValueError is outside the YAMLError hierarchy.
-        pass
+        # whose ValueError is outside the YAMLError hierarchy; its composer
+        # recurses once per nesting level, so deeply nested input raises
+        # RecursionError instead.
+        try:
+            return [json.loads(body)]
+        except (ValueError, RecursionError):
+            pass
     return documents
 
 

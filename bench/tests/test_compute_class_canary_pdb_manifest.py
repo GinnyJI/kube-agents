@@ -199,7 +199,14 @@ def test_a_blank_line_json_kind_last_or_an_indented_fence_still_parses():
     in_a_list = "1. Apply this:\n\n   " + (
         PDB_HEAD + "spec:\n  maxUnavailable: 0\n  selector:\n    matchLabels:\n      app: shop\n      version: green\n```"
     ).replace("\n", "\n   ")
-    for report in (blank_line, kind_last, in_a_list):
+    on_a_list_marker = "- " + (
+        PDB_HEAD + "spec:\n  maxUnavailable: 0\n  selector:\n    matchLabels:\n      app: shop\n      version: green\n```"
+    ).replace("\n", "\n  ")
+    tab_json = (
+        '```json\n{\n\t"apiVersion": "policy/v1",\n\t"kind": "PodDisruptionBudget",\n\t"spec": {\n'
+        '\t\t"maxUnavailable": 0,\n\t\t"selector": {"matchLabels": {"app": "shop", "version": "green"}}\n\t}\n}\n```'
+    )
+    for report in (blank_line, kind_last, in_a_list, on_a_list_marker, tab_json):
         assert _matches(report), report
 
 
@@ -260,6 +267,8 @@ def test_a_budget_the_api_server_would_refuse_or_bypass_fails():
 def test_a_heredoc_or_a_list_carries_the_pdb():
     assert _matches("```bash\nkubectl apply -f - <<'EOF'\n" + GREEN_PDB + "EOF\n```")
     assert _matches("```bash\ncat <<EOF | kubectl apply -f -\n" + GREEN_PDB + "EOF\n```")
+    assert _matches("```bash\nkubectl apply -f - <<'PDB-EOF'\n" + GREEN_PDB + "PDB-EOF\n```")
+    assert _matches("```bash\nkubectl apply -f - <<END.YAML\n" + GREEN_PDB + "END.YAML\n```")
     as_sequence = "".join(("- " if i == 0 else "  ") + line + "\n" for i, line in enumerate(GREEN_PDB.splitlines()))
     assert _matches("```yaml\n" + as_sequence + "```")
     as_list = "apiVersion: v1\nkind: List\nitems:\n" + as_sequence
@@ -269,6 +278,8 @@ def test_a_heredoc_or_a_list_carries_the_pdb():
 def test_a_refused_line_after_a_separator_keeps_the_pdb():
     assert _matches("```yaml\n" + GREEN_PDB + "---\n**bold**\n```")
     assert _matches("```yaml\n" + GREEN_PDB + "---\n\tkind: Service\n```")
+    # Nesting deep enough to exhaust PyYAML's recursive composer.
+    assert _matches("```yaml\n" + GREEN_PDB + "---\n" + "[" * 5000 + "\n```")
     # With no separator the refused line falls inside the PDB's own document.
     assert not _matches("```yaml\n" + GREEN_PDB + "kubectl patch pdb shop-green-pdb -p '{}'\n```")
 
