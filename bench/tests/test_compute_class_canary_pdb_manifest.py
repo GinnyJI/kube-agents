@@ -273,6 +273,18 @@ def test_a_heredoc_or_a_list_carries_the_pdb():
     assert _matches("```yaml\n" + as_sequence + "```")
     as_list = "apiVersion: v1\nkind: List\nitems:\n" + as_sequence
     assert _matches("```yaml\n" + as_list + "```")
+    typed_list = "apiVersion: policy/v1\nkind: PodDisruptionBudgetList\nitems:\n" + as_sequence
+    assert _matches("```yaml\n" + typed_list + "```")
+
+
+def test_pathological_nesting_neither_crashes_nor_hides_the_pdb():
+    pdb = "```yaml\n" + GREEN_PDB + "```\n"
+    # Unclosed openers, each holding the rest of the text.
+    assert _matches(pdb + "```yaml\n" * 3000)
+    # JSON nested deeper than the Python recursion limit but within the C decoder's.
+    assert _matches(pdb + "```json\n" + "[" * 1200 + "]" * 1200 + "\n```")
+    # A YAML alias cycle.
+    assert _matches(pdb + "```yaml\n&a [*a]\n```")
 
 
 def test_a_refused_line_after_a_separator_keeps_the_pdb():

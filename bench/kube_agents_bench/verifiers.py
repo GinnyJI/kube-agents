@@ -142,8 +142,9 @@ _LIST_MARKER_PREFIX = re.compile(r"^[ \t]*(?:[-*+]|\d+[.)])[ \t]+")
 # A shell heredoc opener (``kubectl apply -f - <<'EOF'``): its body is the
 # manifest when an answer shows the command rather than the bare YAML.
 _HEREDOC_OPENER = re.compile(r"<<-?[ \t]*['\"]?([\w.-]+)['\"]?")
-# The kind whose ``items`` are the documents it wraps.
-_LIST_KIND = "List"
+# The kind suffix of a list whose ``items`` are the documents it wraps:
+# ``List`` and the typed lists (``PodList``, ``PodDisruptionBudgetList``).
+_LIST_KIND_SUFFIX = "List"
 # The Kubernetes label-selector operators ``report_manifest`` evaluates.
 _SELECTOR_IN = "In"
 _SELECTOR_NOT_IN = "NotIn"
@@ -780,6 +781,17 @@ def _fenced_bodies(text: str) -> list[str]:
     has the inner block read.
     """
     bodies: list[str] = []
+    pending = [text]
+    while pending:
+        found = _top_level_fenced_bodies(pending.pop())
+        bodies += found
+        pending += found
+    return bodies
+
+
+def _top_level_fenced_bodies(text: str) -> list[str]:
+    """The fenced code blocks of ``text`` itself, not those nested in them."""
+    bodies: list[str] = []
     fence = ""
     quoted = False
     lines: list[str] = []
@@ -800,7 +812,7 @@ def _fenced_bodies(text: str) -> list[str]:
         lines.append(content)
     if fence:
         bodies.append("\n".join(lines))
-    return bodies + [inner for body in bodies for inner in _fenced_bodies(body)]
+    return bodies
 
 
 def _heredoc_bodies(body: str) -> list[str]:
@@ -843,15 +855,27 @@ def _loaded_documents(body: str) -> list[Any]:
 
 
 def _flattened(document: Any) -> list[dict[str, Any]]:
-    """A mapping as itself; a sequence, or a ``kind: List``'s ``items``, as
-    the mappings it holds."""
-    if isinstance(document, list):
-        return [inner for item in document for inner in _flattened(item)]
-    if not isinstance(document, dict):
-        return []
-    if document.get("kind") == _LIST_KIND and isinstance(document.get("items"), list):
-        return [document] + _flattened(document["items"])
-    return [document]
+    """A mapping as itself; a sequence, or a list kind's ``items``, as the
+    mappings it holds. A work list rather than recursion, and each container
+    is visited once, so deep nesting and a YAML alias cycle (``&a [*a]``)
+    both end."""
+    found: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    pending = [document]
+    while pending:
+        node = pending.pop()
+        if id(node) in seen:
+            continue
+        if isinstance(node, list):
+            seen.add(id(node))
+            pending += reversed(node)
+        elif isinstance(node, dict):
+            seen.add(id(node))
+            found.append(node)
+            kind, items = node.get("kind"), node.get("items")
+            if isinstance(kind, str) and kind.endswith(_LIST_KIND_SUFFIX) and isinstance(items, list):
+                pending.append(items)
+    return found
 
 
 def _manifest_documents(raw: str) -> list[dict[str, Any]]:
@@ -3686,10 +3710,8 @@ def _is_kubernetes_list(node: Any) -> bool:
     """Whether a mapping node is a ``kind: List`` with a sequence of ``items``."""
     keys = {k.value: v for k, v in node.value if isinstance(k, yaml.ScalarNode)}
     kind, items = keys.get("kind"), keys.get("items")
-    # `List` and the typed lists (`PodList`, `ConfigMapList`) kubectl reads
-    # the same way.
     return (
-        isinstance(kind, yaml.ScalarNode) and kind.value.endswith("List")
+        isinstance(kind, yaml.ScalarNode) and kind.value.endswith(_LIST_KIND_SUFFIX)
         and isinstance(items, yaml.SequenceNode)
     )
 
