@@ -43,6 +43,7 @@ func TestSplitClusterPath(t *testing.T) {
 		{name: "no default is in-cluster", target: "/api/v1/pods", wantCluster: InClusterID, wantPath: "/api/v1/pods"},
 		{name: "gke prefix", target: "/clusters/" + gkeFleet + "/api/v1/namespaces/default/pods", defaultID: gkeHost, wantCluster: gkeFleet, wantPath: "/api/v1/namespaces/default/pods"},
 		{name: "in-cluster prefix", target: "/clusters/in-cluster/apis/apps/v1/deployments", wantCluster: InClusterID, wantPath: "/apis/apps/v1/deployments"},
+		{name: "domain-scoped gke prefix", target: "/clusters/gke_example.com:proj_us-central1_c/api/v1/pods", wantCluster: "gke_example.com:proj_us-central1_c", wantPath: "/api/v1/pods"},
 		{name: "kind prefix", target: "/clusters/kind-dev.1/version", wantCluster: "kind-dev.1", wantPath: "/version"},
 		{name: "prefix alone is the root", target: "/clusters/in-cluster", wantCluster: InClusterID, wantPath: "/"},
 		{name: "encoded slash", target: "/api/v1/namespaces/default%2fsecrets/pods", wantErr: true},
@@ -58,6 +59,7 @@ func TestSplitClusterPath(t *testing.T) {
 		{name: "missing cluster ID", target: "/clusters/", wantErr: true},
 		{name: "invalid cluster ID", target: "/clusters/bad$cluster/api/v1/pods", wantErr: true},
 		{name: "gke ID with too few parts", target: "/clusters/gke_proj_cluster/api", wantErr: true},
+		{name: "gke project with a dot and no domain", target: "/clusters/gke_example.com_us-central1_c/api", wantErr: true},
 		{name: "upper-case cluster ID", target: "/clusters/kind-Dev/api", wantErr: true},
 	}
 	for _, tc := range tests {
@@ -333,6 +335,8 @@ func TestRefusalWithoutMarkers(t *testing.T) {
 		{http.MethodGet, "/api/v1/namespaces/default/pods/p/exec?command=sh"},
 		{http.MethodOptions, "/api/v1/namespaces/default/pods"},
 		{http.MethodGet, "/metrics"},
+		{http.MethodGet, "/apis/certificates.k8s.io/v1/certificatesigningrequests/c/approval"},
+		{http.MethodOptions, "/apis/certificates.k8s.io/v1/certificatesigningrequests/c/approval"},
 	}
 	factory := NewRequestInfoFactory()
 	for _, tc := range tests {
