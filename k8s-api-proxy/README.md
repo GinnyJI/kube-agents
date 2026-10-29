@@ -10,6 +10,14 @@ and the HTTP handler around it (`handler.go`), which authenticates through a plu
 through a pluggable `UpstreamTransport`. Neither interface has an
 implementation yet, and nothing serves or deploys the handler.
 
+The handler hands one `AuditEvent` per request to an `AuditSink` (`audit.go`): the caller, the
+cluster, the API server's classification of the request, the outcome (`forwarded`,
+`unauthenticated`, `refused` with its reason, `upstream_error`, or `aborted` when a response
+stops mid-stream), the status and the duration. It carries no body, query or credential. The
+default sink writes each event as one `slog` record, and the reverse proxy's own errors go to the
+same logger. A transport error, which the caller never sees because it can name the upstream,
+is in the event.
+
 The policy has three modes. `read-only` permits `get`, `list` and `watch` and the discovery
 paths. `read-only-dry-run`, the default and the mode kube-agents will run, also permits `create`,
 `update` and `patch` carrying `dryRun=All`. `read-write` permits writes. Every mode refuses
