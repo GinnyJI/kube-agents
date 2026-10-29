@@ -20,7 +20,9 @@ type CallerAuthenticator interface {
 
 // UpstreamTransport forwards an admitted request to the cluster clusterID names. req carries
 // the API server path and query, with the caller's credentials already removed; the
-// transport sets the scheme, host and its own credentials.
+// transport sets the scheme, host and its own credentials. For a 101 Switching Protocols
+// response the body must be an io.ReadWriteCloser, as net/http/httputil.ReverseProxy requires
+// to splice the upgraded stream.
 type UpstreamTransport interface {
 	RoundTripCluster(ctx context.Context, clusterID string, req *http.Request) (*http.Response, error)
 }

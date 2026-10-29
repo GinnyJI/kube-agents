@@ -78,7 +78,7 @@ func serve(h http.Handler, req *http.Request) *httptest.ResponseRecorder {
 
 func decodeStatus(t *testing.T, rec *httptest.ResponseRecorder) metav1.Status {
 	t.Helper()
-	if ct := rec.Header().Get("Content-Type"); ct != contentTypeJSON {
+	if ct := rec.Header().Get(headerContentType); ct != contentTypeJSON {
 		t.Errorf("Content-Type = %q, want %q", ct, contentTypeJSON)
 	}
 	var s metav1.Status
@@ -175,6 +175,10 @@ func TestHandlerRefusals(t *testing.T) {
 		{"write without dry run", http.MethodPost, "/api/v1/namespaces/default/configmaps", http.StatusForbidden, metav1.StatusReasonForbidden},
 		{"exec", http.MethodPost, "/api/v1/namespaces/default/pods/p/exec?command=sh", http.StatusForbidden, metav1.StatusReasonForbidden},
 		{"non-discovery path", http.MethodGet, "/metrics", http.StatusForbidden, metav1.StatusReasonForbidden},
+		{"unclassifiable path", http.MethodGet, "/api/v1/watch", http.StatusBadRequest, metav1.StatusReasonBadRequest},
+		{"secret get", http.MethodGet, "/api/v1/namespaces/default/secrets/s", http.StatusForbidden, metav1.StatusReasonForbidden},
+		{"secret list", http.MethodGet, "/api/v1/secrets", http.StatusForbidden, metav1.StatusReasonForbidden},
+		{"secret watch", http.MethodGet, "/api/v1/namespaces/default/secrets?watch=1", http.StatusForbidden, metav1.StatusReasonForbidden},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -194,6 +198,28 @@ func TestHandlerRefusals(t *testing.T) {
 	}
 }
 
+func TestHandlerSecretReadsWithoutRedaction(t *testing.T) {
+	h, upstream := newTestHandler(t, Config{Policy: Policy{Mode: ModeReadOnly}})
+	if rec := serve(h, httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/default/secrets", nil)); rec.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", rec.Code, rec.Body.String())
+	}
+	if upstream.calls != 1 {
+		t.Errorf("upstream calls = %d, want 1", upstream.calls)
+	}
+}
+
+func TestHandlerDropsAbsoluteURLAuthority(t *testing.T) {
+	h, upstream := newTestHandler(t, Config{})
+	rec := serve(h, httptest.NewRequest(http.MethodGet, "http://user:pw@attacker.example/api/v1/pods?limit=5", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d: %s", rec.Code, rec.Body.String())
+	}
+	u := upstream.req.URL
+	if u.Scheme != "" || u.Host != "" || u.User != nil || u.Path != "/api/v1/pods" || u.RawQuery != "limit=5" {
+		t.Errorf("upstream URL = %#v, want only the path and query", u)
+	}
+}
+
 func TestHandlerForwardsDryRunWrite(t *testing.T) {
 	h, upstream := newTestHandler(t, Config{})
 	const body = `{"apiVersion":"v1","kind":"ConfigMap","metadata":{"name":"c"}}`
@@ -210,21 +236,23 @@ func TestHandlerStripsCallerHeaders(t *testing.T) {
 	h, upstream := newTestHandler(t, Config{})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/default/pods", nil)
 	for k, v := range map[string]string{
-		"Authorization":         "Bearer sandbox-token",
-		"Proxy-Authorization":   "Basic dXNlcjpwYXNz",
-		"Cookie":                "session=s",
-		"Impersonate-User":      "cluster-admin",
-		"Impersonate-Group":     "system:masters",
-		"Impersonate-Uid":       "1",
-		"Impersonate-Extra-Foo": "bar",
-		"X-Remote-User":         "admin",
-		"X-Remote-Group":        "system:masters",
-		"Forwarded":             "for=10.0.0.1",
-		"X-Forwarded-For":       "10.0.0.1",
-		"Connection":            "X-Hop",
-		"X-Hop":                 "1",
-		"User-Agent":            "kubectl/v1.37.0",
-		"Accept":                contentTypeJSON,
+		"Authorization":          "Bearer sandbox-token",
+		"Proxy-Authorization":    "Basic dXNlcjpwYXNz",
+		"Cookie":                 "session=s",
+		"Audit-ID":               "forged",
+		"Sec-WebSocket-Protocol": "base64url.bearer.authorization.k8s.io.dG9rZW4, v5.channel.k8s.io",
+		"Impersonate-User":       "cluster-admin",
+		"Impersonate-Group":      "system:masters",
+		"Impersonate-Uid":        "1",
+		"Impersonate-Extra-Foo":  "bar",
+		"X-Remote-User":          "admin",
+		"X-Remote-Group":         "system:masters",
+		"Forwarded":              "for=10.0.0.1",
+		"X-Forwarded-For":        "10.0.0.1",
+		"Connection":             "X-Hop",
+		"X-Hop":                  "1",
+		"User-Agent":             "kubectl/v1.37.0",
+		"Accept":                 contentTypeJSON,
 	} {
 		req.Header.Set(k, v)
 	}
@@ -232,7 +260,7 @@ func TestHandlerStripsCallerHeaders(t *testing.T) {
 		t.Fatalf("code = %d: %s", rec.Code, rec.Body.String())
 	}
 	for _, k := range []string{
-		"Authorization", "Proxy-Authorization", "Cookie", "Impersonate-User", "Impersonate-Group",
+		"Authorization", "Proxy-Authorization", "Cookie", "Audit-ID", "Impersonate-User", "Impersonate-Group",
 		"Impersonate-Uid", "Impersonate-Extra-Foo", "X-Remote-User", "X-Remote-Group", "Forwarded",
 		"X-Forwarded-For", "Connection", "X-Hop",
 	} {
@@ -244,6 +272,9 @@ func TestHandlerStripsCallerHeaders(t *testing.T) {
 		if upstream.req.Header.Get(k) == "" {
 			t.Errorf("%s was dropped", k)
 		}
+	}
+	if got := upstream.req.Header.Get("Sec-WebSocket-Protocol"); got != "v5.channel.k8s.io" {
+		t.Errorf("upstream Sec-WebSocket-Protocol = %q, want the bearer entry dropped", got)
 	}
 }
 
@@ -283,8 +314,8 @@ func TestHandlerUpstreamError(t *testing.T) {
 	if rec.Code != http.StatusBadGateway {
 		t.Fatalf("code = %d, want 502", rec.Code)
 	}
-	if s := decodeStatus(t, rec); !strings.Contains(s.Message, gkeHost) || !strings.Contains(s.Message, "i/o timeout") {
-		t.Errorf("message = %q, want the cluster and the cause", s.Message)
+	if s := decodeStatus(t, rec); !strings.Contains(s.Message, gkeHost) || strings.Contains(s.Message, "i/o timeout") {
+		t.Errorf("message = %q, want the cluster without the transport error", s.Message)
 	}
 }
 
@@ -316,6 +347,19 @@ func TestSanitizeRequestHeaders(t *testing.T) {
 			in:              http.Header{"Connection": {"Upgrade"}},
 			preserveUpgrade: true,
 			want:            http.Header{},
+		},
+		{
+			name: "drops bearer subprotocols and keeps the rest",
+			in: http.Header{"Sec-WebSocket-Protocol": {
+				"Base64url.Bearer.Authorization.K8s.Io.dG9rZW4, v5.channel.k8s.io",
+				"base64url.bearer.authorization.k8s.io.eA, channel.k8s.io",
+			}},
+			want: http.Header{"Sec-WebSocket-Protocol": {"v5.channel.k8s.io, channel.k8s.io"}},
+		},
+		{
+			name: "drops a header of only bearer subprotocols",
+			in:   http.Header{"Sec-WebSocket-Protocol": {"base64url.bearer.authorization.k8s.io.dG9rZW4"}},
+			want: http.Header{},
 		},
 		{
 			name: "drops credentials and identity headers in any case",

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apiserver/pkg/endpoints/request"
@@ -14,7 +15,8 @@ import (
 const (
 	authFailedMessage   = messagePrefix + "caller authentication failed"
 	unclassifiedMessage = messagePrefix + "the request path could not be classified"
-	upstreamFailed      = "kube-proxy could not reach cluster %q: %v"
+	upstreamFailed      = "kube-proxy could not reach cluster %q"
+	secretReadRefused   = policyPrefix + "verb %q on resource \"secrets\": Secret values are not readable through this proxy." + boundaryNotice
 
 	// flushImmediately streams each upstream write to the caller, which watch and log
 	// follow need.
@@ -55,9 +57,7 @@ func NewHandler(cfg Config) (http.Handler, error) {
 	if cfg.Upstream == nil {
 		return nil, errors.New("k8sapiproxy: Config.Upstream is required")
 	}
-	switch cfg.Policy.Mode {
-	case ModeReadOnly, ModeReadOnlyWithDryRun, ModeReadWrite:
-	default:
+	if !cfg.Policy.Mode.valid() {
 		return nil, fmt.Errorf("k8sapiproxy: invalid Config.Policy.Mode %q", cfg.Policy.Mode)
 	}
 	if cfg.DefaultClusterID != "" && !validClusterID.MatchString(cfg.DefaultClusterID) {
@@ -72,19 +72,23 @@ func NewHandler(cfg Config) (http.Handler, error) {
 		factory:          NewRequestInfoFactory(),
 		proxy: &httputil.ReverseProxy{
 			// Rewrite rather than Director: the reverse proxy then also drops the caller's
-			// Forwarded and X-Forwarded-* headers.
+			// Forwarded, X-Forwarded-For, X-Forwarded-Host and X-Forwarded-Proto headers. The
+			// outbound URL keeps only the path and query, so a scheme, host or userinfo from an
+			// absolute-form request URI never reaches the transport.
 			Rewrite: func(pr *httputil.ProxyRequest) {
 				pr.Out.Host = ""
+				pr.Out.URL = &url.URL{Path: pr.In.URL.Path, RawQuery: pr.In.URL.RawQuery}
 			},
 			Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 				clusterID, _ := req.Context().Value(clusterIDKey{}).(string)
 				return upstream.RoundTripCluster(req.Context(), clusterID, req)
 			}),
 			FlushInterval: flushImmediately,
-			ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
+			// The transport's error is not echoed: it can name the upstream endpoint.
+			ErrorHandler: func(w http.ResponseWriter, req *http.Request, _ error) {
 				clusterID, _ := req.Context().Value(clusterIDKey{}).(string)
 				writeStatus(w, http.StatusBadGateway, metav1.StatusReasonInternalError,
-					fmt.Sprintf(upstreamFailed, clusterID, err))
+					fmt.Sprintf(upstreamFailed, clusterID))
 			},
 		},
 	}, nil
@@ -117,6 +121,11 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if perr := h.policy.Evaluate(out, info); perr != nil {
 		writePolicyError(w, perr)
+		return
+	}
+	// Responses are not redacted yet, so a Secret read is refused while redaction is asked for.
+	if h.policy.RedactSecrets && isCoreV1Secret(info) && readVerbs.Has(info.Verb) {
+		writePolicyError(w, forbidden(ReasonResourceBlocked, fmt.Sprintf(secretReadRefused, info.Verb)))
 		return
 	}
 

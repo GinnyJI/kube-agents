@@ -10,10 +10,16 @@ const (
 	headerConnection  = "Connection"
 	upgradeToken      = "upgrade"
 	connectionUpgrade = "Upgrade"
+
+	headerWebSocketProtocol = "Sec-WebSocket-Protocol"
+	// bearerProtocolPrefix starts a WebSocket subprotocol the API server reads as a bearer
+	// token, for clients that cannot set Authorization.
+	bearerProtocolPrefix = "base64url.bearer.authorization.k8s.io."
 )
 
-// credentialHeaders carry the caller's own credentials, which never reach the API server.
-var credentialHeaders = []string{"Authorization", "Proxy-Authorization", "Cookie"}
+// callerHeaders never reach the API server: the caller's own credentials, and Audit-ID, which
+// the API server would record as the request's audit ID.
+var callerHeaders = []string{"Authorization", "Proxy-Authorization", "Cookie", "Audit-ID"}
 
 // identityHeaderPrefixes start the headers an API server reads as the requesting identity:
 // impersonation, and the X-Remote-* headers of an authenticating front proxy.
@@ -36,7 +42,7 @@ func HasUpgradeHeader(r *http.Request) bool {
 }
 
 // sanitizeRequestHeaders removes from h what must not reach the API server: the caller's
-// credentials, identity headers, the headers the caller named in Connection, Connection
+// credentials, a bearer token in Sec-WebSocket-Protocol, Audit-ID, identity headers, the headers the caller named in Connection, Connection
 // itself, and Upgrade unless preserveUpgrade. It runs before the handler sets any header of
 // its own: the reverse proxy drops every header Connection names, so a caller listing one
 // the handler sets could otherwise make it disappear.
@@ -51,9 +57,10 @@ func sanitizeRequestHeaders(h http.Header, preserveUpgrade bool) {
 		}
 	}
 	h.Del(headerConnection)
-	for _, name := range credentialHeaders {
+	for _, name := range callerHeaders {
 		h.Del(name)
 	}
+	stripBearerProtocols(h)
 	for key := range h {
 		lower := strings.ToLower(key)
 		for _, prefix := range identityHeaderPrefixes {
@@ -67,5 +74,28 @@ func sanitizeRequestHeaders(h http.Header, preserveUpgrade bool) {
 		h.Set(headerConnection, connectionUpgrade)
 	} else {
 		h.Del(headerUpgrade)
+	}
+}
+
+// stripBearerProtocols drops the Sec-WebSocket-Protocol entries that carry a bearer token and
+// keeps the rest, which name the stream protocol.
+func stripBearerProtocols(h http.Header) {
+	values := h.Values(headerWebSocketProtocol)
+	if len(values) == 0 {
+		return
+	}
+	var kept []string
+	for _, v := range values {
+		for _, entry := range strings.Split(v, ",") {
+			entry = strings.TrimSpace(entry)
+			if entry == "" || strings.HasPrefix(strings.ToLower(entry), bearerProtocolPrefix) {
+				continue
+			}
+			kept = append(kept, entry)
+		}
+	}
+	h.Del(headerWebSocketProtocol)
+	if len(kept) > 0 {
+		h.Set(headerWebSocketProtocol, strings.Join(kept, ", "))
 	}
 }

@@ -34,14 +34,23 @@ const DefaultMode = ModeReadOnlyWithDryRun
 
 // ParseMode validates raw, returning DefaultMode for an empty string.
 func ParseMode(raw string) (Mode, error) {
-	switch m := Mode(raw); m {
-	case "":
+	m := Mode(raw)
+	switch {
+	case m == "":
 		return DefaultMode, nil
-	case ModeReadOnly, ModeReadOnlyWithDryRun, ModeReadWrite:
+	case m.valid():
 		return m, nil
 	default:
 		return "", fmt.Errorf("invalid proxy mode %q: expected %q, %q or %q", raw, ModeReadOnly, ModeReadOnlyWithDryRun, ModeReadWrite)
 	}
+}
+
+func (m Mode) valid() bool {
+	switch m {
+	case ModeReadOnly, ModeReadOnlyWithDryRun, ModeReadWrite:
+		return true
+	}
+	return false
 }
 
 // RejectionReason classifies a refusal. The values are a closed vocabulary, so they can be
@@ -248,9 +257,9 @@ func SplitClusterPath(u *url.URL, defaultClusterID string) (clusterID, apiPath s
 // Policy decides which requests reach the API server.
 type Policy struct {
 	Mode Mode
-	// RedactSecrets keeps Secret values out of what the Secrets API returns. Besides the
-	// response redaction the handler applies, it refuses Secret subresources, and Secret update
-	// and patch in every mode: a dry-run patch can copy a value into a field that is returned
+	// RedactSecrets keeps Secret values out of what the Secrets API returns. The handler does
+	// not redact responses yet, so while it is set the handler refuses Secret get, list and
+	// watch. Evaluate refuses Secret subresources, and Secret update and patch in every mode: a dry-run patch can copy a value into a field that is returned
 	// unredacted, a JSON patch `test` op answers whether a guess is right, and a validation
 	// error can echo a copied value back. It does not cover a value a workload exposes: in
 	// ModeReadWrite a caller can create a pod that prints a Secret and read its log.
@@ -270,9 +279,7 @@ func (p Policy) Evaluate(r *http.Request, info *request.RequestInfo) *PolicyErro
 	if r == nil || info == nil {
 		return invalidRoute("the request could not be classified")
 	}
-	switch p.Mode {
-	case ModeReadOnly, ModeReadOnlyWithDryRun, ModeReadWrite:
-	default:
+	if !p.Mode.valid() {
 		return &PolicyError{
 			Code:            http.StatusInternalServerError,
 			Reason:          metav1.StatusReasonInternalError,

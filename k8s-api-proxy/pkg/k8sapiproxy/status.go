@@ -8,13 +8,14 @@ import (
 )
 
 const (
-	statusKind       = "Status"
-	statusAPIVersion = "v1"
-	contentTypeJSON  = "application/json"
-	headerNoSniff    = "X-Content-Type-Options"
-	noSniff          = "nosniff"
-	minStatusCode    = 100
-	maxStatusCode    = 599
+	statusKind        = "Status"
+	statusAPIVersion  = "v1"
+	headerContentType = "Content-Type"
+	contentTypeJSON   = "application/json"
+	headerNoSniff     = "X-Content-Type-Options"
+	noSniff           = "nosniff"
+	minStatusCode     = 100
+	maxStatusCode     = 599
 )
 
 // writeStatus writes a refusal as the metav1.Status kubectl expects from an API server, so
@@ -28,13 +29,13 @@ func writeStatus(w http.ResponseWriter, code int, reason metav1.StatusReason, me
 		Status:   metav1.StatusFailure,
 		Message:  message,
 		Reason:   reason,
-		Code:     int32(code),
+		Code:     int32(code), // #nosec G115 -- clamped to [minStatusCode, maxStatusCode] above
 	})
 	if err != nil {
 		http.Error(w, message, code)
 		return
 	}
-	w.Header().Set("Content-Type", contentTypeJSON)
+	w.Header().Set(headerContentType, contentTypeJSON)
 	w.Header().Set(headerNoSniff, noSniff)
 	w.WriteHeader(code)
 	_, _ = w.Write(body)
