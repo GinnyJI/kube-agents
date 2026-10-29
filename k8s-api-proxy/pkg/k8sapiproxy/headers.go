@@ -79,22 +79,24 @@ func sanitizeRequestHeaders(h http.Header, preserveUpgrade bool) {
 
 // stripBearerProtocols drops the Sec-WebSocket-Protocol entries that carry a bearer token and
 // keeps the rest, which name the stream protocol.
+// It matches the key in any case, so a map built without canonical keys cannot slip one past.
 func stripBearerProtocols(h http.Header) {
-	values := h.Values(headerWebSocketProtocol)
-	if len(values) == 0 {
-		return
-	}
 	var kept []string
-	for _, v := range values {
-		for _, entry := range strings.Split(v, ",") {
-			entry = strings.TrimSpace(entry)
-			if entry == "" || strings.HasPrefix(strings.ToLower(entry), bearerProtocolPrefix) {
-				continue
-			}
-			kept = append(kept, entry)
+	for key, values := range h {
+		if !strings.EqualFold(key, headerWebSocketProtocol) {
+			continue
 		}
+		for _, v := range values {
+			for _, entry := range strings.Split(v, ",") {
+				entry = strings.TrimSpace(entry)
+				if entry == "" || strings.HasPrefix(strings.ToLower(entry), bearerProtocolPrefix) {
+					continue
+				}
+				kept = append(kept, entry)
+			}
+		}
+		delete(h, key)
 	}
-	h.Del(headerWebSocketProtocol)
 	if len(kept) > 0 {
 		h.Set(headerWebSocketProtocol, strings.Join(kept, ", "))
 	}
