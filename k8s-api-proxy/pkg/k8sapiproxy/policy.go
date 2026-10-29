@@ -23,8 +23,9 @@ const (
 	// run in this mode.
 	ModeReadOnlyWithDryRun Mode = "read-only-dry-run"
 	// ModeReadWrite permits create, update, patch, delete and deletecollection, for platforms
-	// that authorize writes. Credential minting and pod placement stay refused, and stream
-	// upgrades unless Policy.AllowUpgradeSubresources is set.
+	// that authorize writes. Credential minting through subresources and pod placement stay
+	// refused, and stream upgrades unless Policy.AllowUpgradeSubresources is set. See
+	// Policy.RedactSecrets for a token reachable through a created Secret.
 	ModeReadWrite Mode = "read-write"
 )
 
@@ -253,6 +254,10 @@ type Policy struct {
 	// unredacted, a JSON patch `test` op answers whether a guess is right, and a validation
 	// error can echo a copied value back. It does not cover a value a workload exposes: in
 	// ModeReadWrite a caller can create a pod that prints a Secret and read its log.
+	// Turning it off in ModeReadWrite exposes more than existing Secrets: a caller can create
+	// a Secret of type kubernetes.io/service-account-token, which the token controller fills
+	// with a long-lived token for the ServiceAccount it names, and read it back. Evaluate does
+	// not read request bodies, so it cannot refuse that create.
 	RedactSecrets bool
 	// AllowUpgradeSubresources permits exec, attach, portforward and proxy in ModeReadWrite.
 	// Ignored in the read-only modes.
@@ -306,7 +311,7 @@ func (p Policy) Evaluate(r *http.Request, info *request.RequestInfo) *PolicyErro
 		}
 	}
 
-	upgradePermitted := p.Mode == ModeReadWrite && p.AllowUpgradeSubresources && upgradeSubresources.Has(sub)
+	upgradePermitted := p.permitsUpgrade(info)
 	switch {
 	case sub == "":
 	case mintingSubresources.Has(sub):
@@ -369,6 +374,12 @@ func evaluateNonResource(r *http.Request, info *request.RequestInfo) *PolicyErro
 	return forbidden(ReasonDiscoveryPathBlocked, fmt.Sprintf(
 		"%snon-resource path %q: only Kubernetes discovery and health paths are permitted.%s",
 		policyPrefix, info.Path, boundaryNotice))
+}
+
+// permitsUpgrade reports whether info names a stream upgrade the policy admits.
+func (p Policy) permitsUpgrade(info *request.RequestInfo) bool {
+	return p.Mode == ModeReadWrite && p.AllowUpgradeSubresources && info.IsResourceRequest &&
+		upgradeSubresources.Has(strings.ToLower(info.Subresource))
 }
 
 // evaluateSubresource decides a subresource that neither mints credentials nor upgrades.

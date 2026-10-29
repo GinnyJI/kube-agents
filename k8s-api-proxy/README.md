@@ -3,8 +3,11 @@
 The home of a Kubernetes API proxy for the agent sandbox, which is being written. The plan is
 that the sandbox's `kubectl` talks to it, and the proxy authenticates the caller, applies a
 per-request policy, redacts Secret values, and forwards the request to the cluster's API server
-with credentials the sandbox never holds. Only the policy exists so far
-(`pkg/k8sapiproxy/policy.go`); nothing serves or deploys it.
+with credentials the sandbox never holds. So far it has the policy (`pkg/k8sapiproxy/policy.go`)
+and the HTTP handler around it (`handler.go`), which authenticates through a pluggable
+`CallerAuthenticator`, removes the caller's credentials, impersonation and `Connection`-named
+headers, and forwards through a pluggable `UpstreamTransport`. Neither interface has an
+implementation yet, and nothing serves or deploys the handler.
 
 The policy has three modes. `read-only` permits `get`, `list` and `watch` and the discovery
 paths. `read-only-dry-run`, the default and the mode kube-agents will run, also permits `create`,
