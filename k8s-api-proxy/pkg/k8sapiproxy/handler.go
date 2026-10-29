@@ -81,7 +81,12 @@ func NewHandler(cfg Config) (http.Handler, error) {
 			},
 			Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 				clusterID, _ := req.Context().Value(clusterIDKey{}).(string)
-				return upstream.RoundTripCluster(req.Context(), clusterID, req)
+				resp, err := upstream.RoundTripCluster(req.Context(), clusterID, req)
+				// ModifyResponse reads the redaction plan from resp.Request.
+				if resp != nil && resp.Request == nil {
+					resp.Request = req
+				}
+				return resp, err
 			}),
 			ModifyResponse: func(resp *http.Response) error {
 				if plan, ok := resp.Request.Context().Value(secretRedactionKey{}).(*secretRedaction); ok {
