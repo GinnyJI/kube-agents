@@ -389,3 +389,27 @@ func TestHandlerRedactsSecrets(t *testing.T) {
 		t.Errorf("a non-Secret request was rewritten: code %d, Accept %q", rec.Code, upstream.req.Header.Get(headerAccept))
 	}
 }
+
+// The API server returns the deleted Secret, or the deleted list, even for a dry run.
+func TestHandlerRedactsSecretDeletes(t *testing.T) {
+	tests := []struct {
+		name, target, body, wantAccept string
+	}{
+		{"delete", "/api/v1/namespaces/default/secrets/db?dryRun=All", secretJSON, acceptPartial},
+		{"deletecollection", "/api/v1/namespaces/default/secrets?dryRun=All", `{"apiVersion":"v1","kind":"SecretList","items":[` + secretJSON + `]}`, acceptPartialLst},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			upstream := &recordingTransport{response: func(*http.Request) *http.Response { return jsonResponse([]byte(tc.body), nil) }}
+			h, _ := newTestHandler(t, Config{Upstream: upstream, Policy: Policy{Mode: ModeReadWrite, RedactSecrets: true}})
+			rec := serve(h, httptest.NewRequest(http.MethodDelete, tc.target, nil))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("code = %d: %s", rec.Code, rec.Body.String())
+			}
+			assertNoValue(t, rec.Body.Bytes())
+			if got := upstream.req.Header.Get(headerAccept); got != tc.wantAccept {
+				t.Errorf("upstream Accept = %q, want %q", got, tc.wantAccept)
+			}
+		})
+	}
+}
