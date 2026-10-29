@@ -258,7 +258,7 @@ func SplitClusterPath(u *url.URL, defaultClusterID string) (clusterID, apiPath s
 type Policy struct {
 	Mode Mode
 	// RedactSecrets keeps Secret values out of what the Secrets API returns: the handler asks
-	// the API server for metadata only and redacts what comes back. Evaluate refuses Secret
+	// the API server for metadata or a Table, never values, and redacts what comes back. Evaluate refuses Secret
 	// subresources, and Secret update and patch in every mode: a dry-run patch can copy a value into a field that is returned
 	// unredacted, a JSON patch `test` op answers whether a guess is right, and a validation
 	// error can echo a copied value back. It does not cover a value a workload exposes: in

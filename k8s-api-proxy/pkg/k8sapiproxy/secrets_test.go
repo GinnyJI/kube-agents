@@ -3,6 +3,7 @@ package k8sapiproxy
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -27,7 +28,9 @@ const secretJSON = `{"apiVersion":"v1","kind":"Secret","type":"Opaque",
 
 const partialJSON = `{"apiVersion":"meta.k8s.io/v1","kind":"PartialObjectMetadata",
 	"metadata":{"name":"db","namespace":"default","annotations":{
-		"kubectl.kubernetes.io/last-applied-configuration":"{\"data\":{\"password\":\"c2VjcmV0\"}}"},
+		"kubectl.kubernetes.io/last-applied-configuration":"{\"data\":{\"password\":\"c2VjcmV0\"}}",
+		"kapp.k14s.io/original":"{\"kind\":\"Secret\",\"stringData\":{\"user\":\"secret\"}}",
+		"config":"{\"replicas\":2}"},
 		"managedFields":[{"manager":"kubectl","fieldsV1":{"f:data":{".":{},"f:password":{}},"f:type":{}}}]}}`
 
 func assertNoValue(t *testing.T, body []byte) {
@@ -149,6 +152,9 @@ func TestRedactSecretJSON(t *testing.T) {
 		if obj[fieldKind] != asPartial || obj[fieldData] != nil {
 			t.Errorf("got %s", out)
 		}
+		if ann := obj[fieldMetadata].(map[string]any)[fieldAnnotations].(map[string]any); len(ann) != 1 || ann["config"] == nil {
+			t.Errorf("annotations = %v, want only the one without a Secret copy", ann)
+		}
 	})
 
 	t.Run("metadata list becomes a secret list", func(t *testing.T) {
@@ -261,6 +267,15 @@ func TestRedactSecretResponse(t *testing.T) {
 	}
 }
 
+// oneLine compacts a fixture to the single line the API server writes per watch event.
+func oneLine(s string) string {
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, []byte(s)); err != nil {
+		panic(err)
+	}
+	return buf.String()
+}
+
 func readWatch(t *testing.T, src string, view secretView) []map[string]any {
 	t.Helper()
 	resp := jsonResponse([]byte(src), nil)
@@ -283,8 +298,25 @@ func readWatch(t *testing.T, src string, view secretView) []map[string]any {
 }
 
 func TestWatchRedactor(t *testing.T) {
+	t.Run("sets a plain JSON content type", func(t *testing.T) {
+		resp := jsonResponse([]byte(`{"type":"ADDED","object":`+oneLine(partialJSON)+"}\n"), http.Header{headerContentType: {acceptPartial}})
+		redactSecretResponse(resp, &secretRedaction{view: viewObject, verb: verbWatch})
+		if got := resp.Header.Get(headerContentType); got != contentTypeJSON {
+			t.Errorf("Content-Type = %q", got)
+		}
+	})
+
+	t.Run("ends with an error event on an oversized event", func(t *testing.T) {
+		big := `{"type":"ADDED","object":{"apiVersion":"v1","kind":"Secret","metadata":{"name":"` +
+			strings.Repeat("a", maxWatchEventBytes) + `"},"data":{"k":"c2VjcmV0"}}}`
+		events := readWatch(t, big+"\n", viewObject)
+		if len(events) != 1 || events[0][fieldType] != watchEventError {
+			t.Fatalf("got %d events", len(events))
+		}
+	})
+
 	t.Run("redacts each event", func(t *testing.T) {
-		src := `{"type":"ADDED","object":` + partialJSON + "}\n" + `{"type":"MODIFIED","object":` + secretJSON + "}\n"
+		src := `{"type":"ADDED","object":` + oneLine(partialJSON) + "}\n" + `{"type":"MODIFIED","object":` + oneLine(secretJSON) + "}\n"
 		events := readWatch(t, src, viewObject)
 		if len(events) != 2 {
 			t.Fatalf("events = %v", events)
@@ -302,7 +334,7 @@ func TestWatchRedactor(t *testing.T) {
 		"not JSON":     `c2VjcmV0`,
 	} {
 		t.Run("ends with an error event on "+name, func(t *testing.T) {
-			src := `{"type":"ADDED","object":` + secretJSON + "}\n" + bad + "\n" + `{"type":"ADDED","object":` + secretJSON + "}\n"
+			src := `{"type":"ADDED","object":` + oneLine(secretJSON) + "}\n" + bad + "\n" + `{"type":"ADDED","object":` + oneLine(secretJSON) + "}\n"
 			events := readWatch(t, src, viewObject)
 			if len(events) != 2 || events[1][fieldType] != watchEventError {
 				t.Fatalf("events = %v", events)
@@ -329,6 +361,16 @@ func TestHandlerRedactsSecrets(t *testing.T) {
 	if got := upstream.req.Header.Get(headerAccept); got != acceptPartial {
 		t.Errorf("upstream Accept = %q, want %q", got, acceptPartial)
 	}
+
+	// A transport may answer with a request of its own, without the handler's context.
+	upstream = &recordingTransport{response: func(*http.Request) *http.Response {
+		resp := jsonResponse([]byte(secretJSON), nil)
+		resp.Request = httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/default/secrets/db", nil).WithContext(context.Background())
+		return resp
+	}}
+	h, _ = newTestHandler(t, Config{Upstream: upstream})
+	rec = serve(h, httptest.NewRequest(http.MethodGet, "/api/v1/namespaces/default/secrets/db", nil))
+	assertNoValue(t, rec.Body.Bytes())
 
 	upstream = &recordingTransport{response: respond}
 	h, _ = newTestHandler(t, Config{Upstream: upstream, Policy: Policy{Mode: ModeReadOnly}})

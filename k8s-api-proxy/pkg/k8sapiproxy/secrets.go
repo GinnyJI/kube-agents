@@ -56,14 +56,17 @@ const (
 	managedFieldPrefix = "f:"
 	watchEventError    = "ERROR"
 
-	lastAppliedAnnotation   = "kubectl.kubernetes.io/last-applied-configuration"
-	redactedValue           = "REDACTED"
+	lastAppliedAnnotation = "kubectl.kubernetes.io/last-applied-configuration"
+	// redactedValue is base64 of "REDACTED", so a decoded value reads as the word.
+	redactedValue           = "UkVEQUNURUQ="
 	redactedAnnotation      = "kubeagents.x-k8s.io/redacted"
 	redactedAnnotationValue = "true (Secret values are redacted by kube-proxy)"
 
-	// maxSecretResponseBytes bounds a buffered Secret response; a watch event is decoded one
-	// at a time instead.
-	maxSecretResponseBytes = 64 << 20
+	// maxSecretResponseBytes bounds a buffered Secret response, and maxWatchEventBytes one
+	// watch event. A decoded body costs several times its size in memory; kubectl pages
+	// lists, so one page of metadata stays well under the bound.
+	maxSecretResponseBytes = 16 << 20
+	maxWatchEventBytes     = 4 << 20
 
 	redactionFailed = "kube-proxy refused the Secret response: %s"
 )
@@ -124,7 +127,7 @@ func rewriteSecretRequest(h http.Header, info *request.RequestInfo) *secretRedac
 }
 
 // redactSecretResponse redacts resp in place. Anything it cannot redact, it replaces with a
-// 502 Status: a body that is not JSON, an encoding other than gzip, an object of an
+// 502 Status, or on a watch ends the stream with an ERROR event: a body that is not JSON, an encoding other than gzip, an object of an
 // unexpected kind, or a body over maxSecretResponseBytes.
 func redactSecretResponse(resp *http.Response, plan *secretRedaction) {
 	body, err := decodedBody(resp)
@@ -139,6 +142,7 @@ func redactSecretResponse(resp *http.Response, plan *secretRedaction) {
 	}
 
 	if plan.verb == verbWatch && resp.StatusCode == http.StatusOK {
+		resp.Header.Set(headerContentType, contentTypeJSON)
 		resp.Header.Del(headerContentLength)
 		resp.ContentLength = -1
 		resp.Body = newWatchRedactor(body, plan.view)
@@ -211,14 +215,28 @@ func replaceWithStatus(resp *http.Response, cause error) {
 
 // redactSecretJSON redacts one JSON object of a Secret response.
 func redactSecretJSON(raw []byte, view secretView) ([]byte, error) {
-	var obj map[string]any
-	if err := json.Unmarshal(raw, &obj); err != nil {
-		return nil, errors.New("the body is not a JSON object")
+	obj, err := parseJSONObject(raw)
+	if err != nil {
+		return nil, errors.New("the body is not one JSON object")
 	}
 	if err := redactObject(obj, view); err != nil {
 		return nil, err
 	}
 	return json.Marshal(obj)
+}
+
+// parseJSONObject decodes exactly one JSON object, keeping numbers as written.
+func parseJSONObject(raw []byte) (map[string]any, error) {
+	var obj map[string]any
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&obj); err != nil {
+		return nil, err
+	}
+	if dec.More() || obj == nil {
+		return nil, errors.New("not one JSON object")
+	}
+	return obj, nil
 }
 
 // redactObject redacts obj by its kind. A kind the API server does not return for a Secret
@@ -350,8 +368,9 @@ func setRedactedData(obj map[string]any, keys []string) {
 	annotations[redactedAnnotation] = redactedAnnotationValue
 }
 
-// stripLastApplied removes the last-applied-configuration annotation, which holds a copy of
-// the applied Secret, values included.
+// stripLastApplied removes the annotations that hold a copy of the Secret: kubectl's
+// last-applied-configuration, and any other whose value is a JSON object with data or
+// stringData, as other deploy tools record the object they applied.
 func stripLastApplied(obj map[string]any) {
 	meta, _ := obj[fieldMetadata].(map[string]any)
 	if meta == nil {
@@ -361,10 +380,28 @@ func stripLastApplied(obj map[string]any) {
 	if annotations == nil {
 		return
 	}
-	delete(annotations, lastAppliedAnnotation)
+	for key, value := range annotations {
+		if key == lastAppliedAnnotation || holdsSecretCopy(value) {
+			delete(annotations, key)
+		}
+	}
 	if len(annotations) == 0 {
 		delete(meta, fieldAnnotations)
 	}
+}
+
+func holdsSecretCopy(value any) bool {
+	s, ok := value.(string)
+	if !ok {
+		return false
+	}
+	var copied map[string]any
+	if json.Unmarshal([]byte(s), &copied) != nil {
+		return false
+	}
+	_, hasData := copied[fieldData]
+	_, hasStringData := copied[fieldStringData]
+	return hasData || hasStringData
 }
 
 // secretDataKeys returns the keys of data and stringData, and the data keys managedFields
@@ -403,18 +440,22 @@ func secretDataKeys(obj map[string]any) []string {
 	return keys
 }
 
-// watchRedactor redacts a JSON watch stream one event at a time. An event it cannot redact
-// ends the stream with an ERROR event carrying a Status, as the API server ends a failed watch.
+// watchRedactor redacts a JSON watch stream one event at a time. The API server writes each
+// event as one line of JSON. An event it cannot redact, or one longer than
+// maxWatchEventBytes, ends the stream with an ERROR event carrying a Status, as the API server
+// ends a failed watch.
 type watchRedactor struct {
-	src  io.ReadCloser
-	dec  *json.Decoder
-	view secretView
-	buf  bytes.Buffer
-	err  error
+	src     io.ReadCloser
+	scanner *bufio.Scanner
+	view    secretView
+	buf     bytes.Buffer
+	err     error
 }
 
 func newWatchRedactor(src io.ReadCloser, view secretView) io.ReadCloser {
-	return &watchRedactor{src: src, dec: json.NewDecoder(bufio.NewReader(src)), view: view}
+	scanner := bufio.NewScanner(src)
+	scanner.Buffer(nil, maxWatchEventBytes)
+	return &watchRedactor{src: src, scanner: scanner, view: view}
 }
 
 func (w *watchRedactor) Read(p []byte) (int, error) {
@@ -428,13 +469,25 @@ func (w *watchRedactor) Read(p []byte) (int, error) {
 }
 
 func (w *watchRedactor) next() {
-	var event map[string]any
-	if err := w.dec.Decode(&event); err != nil {
-		if errors.Is(err, io.EOF) {
+	if !w.scanner.Scan() {
+		switch err := w.scanner.Err(); {
+		case err == nil:
 			w.err = io.EOF
-			return
+		case errors.Is(err, bufio.ErrTooLong):
+			w.fail(fmt.Errorf("a watch event exceeds %d bytes", maxWatchEventBytes))
+		default:
+			// The upstream stream broke; the caller's watch ends as it would at the API server.
+			w.err = err
 		}
-		w.fail(errors.New("a watch event is not JSON"))
+		return
+	}
+	line := bytes.TrimSpace(w.scanner.Bytes())
+	if len(line) == 0 {
+		return
+	}
+	event, err := parseJSONObject(line)
+	if err != nil {
+		w.fail(errors.New("a watch event is not one JSON object"))
 		return
 	}
 	obj, ok := event[fieldObject].(map[string]any)

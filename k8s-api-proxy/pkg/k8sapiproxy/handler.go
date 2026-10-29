@@ -48,7 +48,8 @@ type handler struct {
 // NewHandler returns the proxy's HTTP handler. Each request is authenticated, routed to a
 // cluster by SplitClusterPath, classified, evaluated by cfg.Policy, stripped of the caller's
 // credentials and identity headers, and forwarded through cfg.Upstream. With
-// cfg.Policy.RedactSecrets, a Secret response carries no values. Every refusal is a
+// cfg.Policy.RedactSecrets, a Secret response carries no data or stringData values and no
+// annotation holding a copy of them. Every refusal is a
 // metav1.Status.
 func NewHandler(cfg Config) (http.Handler, error) {
 	if cfg.Authenticator == nil {
@@ -82,18 +83,13 @@ func NewHandler(cfg Config) (http.Handler, error) {
 			Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
 				clusterID, _ := req.Context().Value(clusterIDKey{}).(string)
 				resp, err := upstream.RoundTripCluster(req.Context(), clusterID, req)
-				// ModifyResponse reads the redaction plan from resp.Request.
-				if resp != nil && resp.Request == nil {
-					resp.Request = req
+				// Redacting here rather than in ModifyResponse keeps the plan off resp.Request,
+				// which a transport may replace with a request of its own.
+				if plan, ok := req.Context().Value(secretRedactionKey{}).(*secretRedaction); ok && resp != nil {
+					redactSecretResponse(resp, plan)
 				}
 				return resp, err
 			}),
-			ModifyResponse: func(resp *http.Response) error {
-				if plan, ok := resp.Request.Context().Value(secretRedactionKey{}).(*secretRedaction); ok {
-					redactSecretResponse(resp, plan)
-				}
-				return nil
-			},
 			FlushInterval: flushImmediately,
 			// The transport's error is not echoed: it can name the upstream endpoint.
 			ErrorHandler: func(w http.ResponseWriter, req *http.Request, _ error) {
