@@ -12,9 +12,9 @@ const (
 	connectionUpgrade = "Upgrade"
 
 	headerWebSocketProtocol = "Sec-WebSocket-Protocol"
-	// bearerProtocolPrefix starts a WebSocket subprotocol the API server reads as a bearer
+	// subprotocolAuthPrefix starts a WebSocket subprotocol the API server reads as a bearer
 	// token, for clients that cannot set Authorization.
-	bearerProtocolPrefix = "base64url.bearer.authorization.k8s.io."
+	subprotocolAuthPrefix = "base64url.bearer.authorization.k8s.io."
 )
 
 // callerHeaders never reach the API server: the caller's own credentials, and Audit-ID, which
@@ -89,7 +89,7 @@ func stripBearerProtocols(h http.Header) {
 		for _, v := range values {
 			for _, entry := range strings.Split(v, ",") {
 				entry = strings.TrimSpace(entry)
-				if entry == "" || strings.HasPrefix(strings.ToLower(entry), bearerProtocolPrefix) {
+				if entry == "" || strings.HasPrefix(strings.ToLower(entry), subprotocolAuthPrefix) {
 					continue
 				}
 				kept = append(kept, entry)
