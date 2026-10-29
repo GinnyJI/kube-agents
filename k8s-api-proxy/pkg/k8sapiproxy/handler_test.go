@@ -252,6 +252,9 @@ func TestHandlerStripsCallerHeaders(t *testing.T) {
 		"X-Remote-Group":         "system:masters",
 		"Forwarded":              "for=10.0.0.1",
 		"X-Forwarded-For":        "10.0.0.1",
+		"X-Forwarded-Host":       "attacker.example",
+		"X-Forwarded-Proto":      "https",
+		"X-Real-Ip":              "10.0.0.2",
 		"Connection":             "X-Hop",
 		"X-Hop":                  "1",
 		"User-Agent":             "kubectl/v1.37.0",
@@ -262,16 +265,14 @@ func TestHandlerStripsCallerHeaders(t *testing.T) {
 	if rec := serve(h, req); rec.Code != http.StatusOK {
 		t.Fatalf("code = %d: %s", rec.Code, rec.Body.String())
 	}
-	for _, k := range []string{
-		"Authorization", "Proxy-Authorization", "Cookie", "Audit-ID", "Impersonate-User", "Impersonate-Group",
-		"Impersonate-Uid", "Impersonate-Extra-Foo", "X-Remote-User", "X-Remote-Group", "Forwarded",
-		"X-Forwarded-For", "Connection", "X-Hop",
-	} {
-		if v := upstream.req.Header.Get(k); v != "" {
-			t.Errorf("%s reached the upstream: %q", k, v)
+	// Only these reach the upstream, so a header added above without a decision fails here.
+	want := map[string]bool{"User-Agent": true, "Accept": true, "Sec-Websocket-Protocol": true}
+	for k := range upstream.req.Header {
+		if !want[k] {
+			t.Errorf("%s reached the upstream: %q", k, upstream.req.Header.Values(k))
 		}
 	}
-	for _, k := range []string{"User-Agent", "Accept"} {
+	for k := range want {
 		if upstream.req.Header.Get(k) == "" {
 			t.Errorf("%s was dropped", k)
 		}

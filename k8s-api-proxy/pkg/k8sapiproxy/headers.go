@@ -17,9 +17,10 @@ const (
 	subprotocolAuthPrefix = "base64url.bearer.authorization.k8s.io."
 )
 
-// callerHeaders never reach the API server: the caller's own credentials, and Audit-ID, which
-// the API server would record as the request's audit ID.
-var callerHeaders = []string{"Authorization", "Proxy-Authorization", "Cookie", "Audit-ID"}
+// callerHeaders never reach the API server: the caller's own credentials, Audit-ID, which the
+// API server would record as the request's audit ID, and X-Real-Ip, which it would record as a
+// source IP. The reverse proxy's Rewrite drops Forwarded and X-Forwarded-*.
+var callerHeaders = []string{"Authorization", "Proxy-Authorization", "Cookie", "Audit-ID", "X-Real-Ip"}
 
 // identityHeaderPrefixes start the headers an API server reads as the requesting identity:
 // impersonation, and the X-Remote-* headers of an authenticating front proxy.
