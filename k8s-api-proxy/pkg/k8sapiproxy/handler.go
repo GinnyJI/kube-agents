@@ -9,7 +9,6 @@ import (
 	"net/url"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apiserver/pkg/endpoints/request"
 )
 
@@ -17,16 +16,11 @@ const (
 	authFailedMessage   = messagePrefix + "caller authentication failed"
 	unclassifiedMessage = messagePrefix + "the request path could not be classified"
 	upstreamFailed      = "kube-proxy could not reach cluster %q"
-	secretReadRefused   = policyPrefix + "verb %q on resource \"secrets\": Secret values are not readable through this proxy." + boundaryNotice
 
 	// flushImmediately streams each upstream write to the caller, which watch and log
 	// follow need.
 	flushImmediately = -1
 )
-
-// secretValueVerbs are the verbs whose response carries Secret values: the API server returns
-// the deleted Secret, or the deleted list, even for a dry run.
-var secretValueVerbs = readVerbs.Union(sets.New(verbDelete, verbDeleteCollection))
 
 // Config configures NewHandler.
 type Config struct {
@@ -53,7 +47,8 @@ type handler struct {
 
 // NewHandler returns the proxy's HTTP handler. Each request is authenticated, routed to a
 // cluster by SplitClusterPath, classified, evaluated by cfg.Policy, stripped of the caller's
-// credentials and identity headers, and forwarded through cfg.Upstream. Every refusal is a
+// credentials and identity headers, and forwarded through cfg.Upstream. With
+// cfg.Policy.RedactSecrets, a Secret response carries no values. Every refusal is a
 // metav1.Status.
 func NewHandler(cfg Config) (http.Handler, error) {
 	if cfg.Authenticator == nil {
@@ -88,6 +83,12 @@ func NewHandler(cfg Config) (http.Handler, error) {
 				clusterID, _ := req.Context().Value(clusterIDKey{}).(string)
 				return upstream.RoundTripCluster(req.Context(), clusterID, req)
 			}),
+			ModifyResponse: func(resp *http.Response) error {
+				if plan, ok := resp.Request.Context().Value(secretRedactionKey{}).(*secretRedaction); ok {
+					redactSecretResponse(resp, plan)
+				}
+				return nil
+			},
 			FlushInterval: flushImmediately,
 			// The transport's error is not echoed: it can name the upstream endpoint.
 			ErrorHandler: func(w http.ResponseWriter, req *http.Request, _ error) {
@@ -126,15 +127,13 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writePolicyError(w, perr)
 		return
 	}
-	// Responses are not redacted yet, so a request whose response carries Secret values is
-	// refused while redaction is asked for.
-	if h.policy.RedactSecrets && isCoreV1Secret(info) && secretValueVerbs.Has(info.Verb) {
-		writePolicyError(w, forbidden(ReasonResourceBlocked, fmt.Sprintf(secretReadRefused, info.Verb)))
-		return
-	}
 
 	sanitizeRequestHeaders(out.Header, h.policy.permitsUpgrade(info))
-	out = out.WithContext(context.WithValue(out.Context(), clusterIDKey{}, clusterID))
+	ctx := context.WithValue(out.Context(), clusterIDKey{}, clusterID)
+	if h.policy.RedactSecrets && isCoreV1Secret(info) {
+		ctx = context.WithValue(ctx, secretRedactionKey{}, rewriteSecretRequest(out.Header, info))
+	}
+	out = out.WithContext(ctx)
 	h.proxy.ServeHTTP(w, out)
 }
 
