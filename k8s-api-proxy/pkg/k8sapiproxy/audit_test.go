@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -260,6 +261,8 @@ func TestSlogAuditSink(t *testing.T) {
 			want:      map[string]any{auditKeyError: "dial tcp: i/o timeout", auditKeyDryRun: true},
 		},
 		{name: "aborted", event: AuditEvent{Outcome: OutcomeAborted}, wantLevel: "ERROR"},
+		{name: "canceled", event: AuditEvent{Outcome: OutcomeCanceled, Err: context.Canceled}, wantLevel: "INFO"},
+		{name: "panicked", event: AuditEvent{Err: errors.New("panic: boom")}, wantLevel: "ERROR"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -298,12 +301,124 @@ func mustJSON(t *testing.T, v any) string {
 // hijackableRecorder is a ResponseRecorder that can be hijacked, as a server's writer can.
 type hijackableRecorder struct {
 	*httptest.ResponseRecorder
+	conn     net.Conn
 	hijacked bool
 }
 
 func (h *hijackableRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	h.hijacked = true
-	return nil, nil, nil
+	return h.conn, bufio.NewReadWriter(bufio.NewReader(h.conn), bufio.NewWriter(h.conn)), nil
+}
+
+// upgradedStream is the body of an upstream 101: the upgraded connection.
+type upgradedStream struct {
+	io.Reader
+	io.Writer
+}
+
+func (upgradedStream) Close() error { return nil }
+
+func TestHandlerAuditsUpgrade(t *testing.T) {
+	sink := &recordingSink{}
+	upstream := transportFunc(func(_ context.Context, _ string, req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusSwitchingProtocols,
+			ProtoMajor: 1,
+			ProtoMinor: 1,
+			Header:     http.Header{"Upgrade": {"SPDY/3.1"}, "Connection": {"Upgrade"}},
+			Body:       upgradedStream{Reader: strings.NewReader(""), Writer: io.Discard},
+			Request:    req,
+		}, nil
+	})
+	h, _ := newTestHandler(t, Config{Audit: sink, Upstream: upstream,
+		Policy: Policy{Mode: ModeReadWrite, AllowUpgradeSubresources: true}})
+
+	proxySide, callerSide := net.Pipe()
+	t.Cleanup(func() { _ = callerSide.Close() })
+	received := make(chan string, 1)
+	go func() {
+		b, _ := io.ReadAll(callerSide)
+		received <- string(b)
+	}()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/default/pods/p/exec?command=sh", nil)
+	req.Header.Set("Upgrade", "SPDY/3.1")
+	req.Header.Set("Connection", "Upgrade")
+	h.ServeHTTP(&hijackableRecorder{ResponseRecorder: httptest.NewRecorder(), conn: proxySide}, req)
+	_ = proxySide.Close()
+
+	if got := <-received; !strings.HasPrefix(got, "HTTP/1.1 101") {
+		t.Fatalf("caller received %q, want a 101", got)
+	}
+	if got := sink.only(t); got.Outcome != OutcomeForwarded || got.StatusCode != http.StatusSwitchingProtocols || got.Err != nil {
+		t.Errorf("event = %+v, want a forwarded 101", got)
+	}
+}
+
+type panicAuthenticator struct{}
+
+func (panicAuthenticator) AuthenticateRequest(*http.Request) (*CallerIdentity, error) {
+	panic("authenticator bug")
+}
+
+func TestHandlerAuditsCancelAndPanic(t *testing.T) {
+	canceled := func(serverCtx bool) *http.Request {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if serverCtx {
+			ctx = context.WithValue(ctx, http.ServerContextKey, &http.Server{})
+		}
+		return httptest.NewRequest(http.MethodGet, "/api/v1/pods?watch=1", nil).WithContext(ctx)
+	}
+	tests := []struct {
+		name        string
+		cfg         Config
+		req         *http.Request
+		wantPanic   any
+		wantOutcome Outcome
+		wantErr     string
+	}{
+		{
+			name: "caller gone before the response",
+			cfg: Config{Upstream: transportFunc(func(ctx context.Context, _ string, _ *http.Request) (*http.Response, error) {
+				return nil, ctx.Err()
+			})},
+			req: canceled(false), wantOutcome: OutcomeCanceled, wantErr: context.Canceled.Error(),
+		},
+		{
+			name:      "caller gone mid-stream",
+			cfg:       Config{Upstream: respondWith(http.StatusOK, failingBody{content: strings.NewReader("{}"), err: context.Canceled})},
+			req:       canceled(true),
+			wantPanic: http.ErrAbortHandler, wantOutcome: OutcomeCanceled,
+		},
+		{
+			name:      "panic",
+			cfg:       Config{Authenticator: panicAuthenticator{}},
+			req:       httptest.NewRequest(http.MethodGet, "/api/v1/pods", nil),
+			wantPanic: "authenticator bug", wantErr: "panic: authenticator bug",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sink := &recordingSink{}
+			tc.cfg.Audit = sink
+			h, _ := newTestHandler(t, tc.cfg)
+			func() {
+				defer func() {
+					if p := recover(); p != tc.wantPanic {
+						t.Errorf("recovered %v, want %v", p, tc.wantPanic)
+					}
+				}()
+				serve(h, tc.req)
+			}()
+			got := sink.only(t)
+			if got.Outcome != tc.wantOutcome {
+				t.Errorf("Outcome = %q, want %q", got.Outcome, tc.wantOutcome)
+			}
+			if gotErr := fmt.Sprint(got.Err); tc.wantErr != "" && gotErr != tc.wantErr {
+				t.Errorf("Err = %s, want %s", gotErr, tc.wantErr)
+			}
+		})
+	}
 }
 
 func TestStatusRecorder(t *testing.T) {
@@ -312,7 +427,6 @@ func TestStatusRecorder(t *testing.T) {
 		want  int
 	}{
 		"interim then final":    {func(w http.ResponseWriter) { w.WriteHeader(http.StatusEarlyHints); w.WriteHeader(http.StatusOK) }, http.StatusOK},
-		"switching protocols":   {func(w http.ResponseWriter) { w.WriteHeader(http.StatusSwitchingProtocols) }, http.StatusSwitchingProtocols},
 		"write without header":  {func(w http.ResponseWriter) { _, _ = w.Write([]byte("{}")) }, http.StatusOK},
 		"first final code wins": {func(w http.ResponseWriter) { w.WriteHeader(http.StatusNotFound); w.WriteHeader(http.StatusOK) }, http.StatusNotFound},
 	} {
@@ -327,11 +441,17 @@ func TestStatusRecorder(t *testing.T) {
 
 	// The reverse proxy flushes and hijacks through http.ResponseController.
 	under := &hijackableRecorder{ResponseRecorder: httptest.NewRecorder()}
-	rc := http.NewResponseController(&statusRecorder{ResponseWriter: under})
+	rec := &statusRecorder{ResponseWriter: under}
+	rc := http.NewResponseController(rec)
 	if err := rc.Flush(); err != nil || !under.Flushed {
 		t.Errorf("Flush = %v, flushed %t", err, under.Flushed)
 	}
-	if _, _, err := rc.Hijack(); err != nil || !under.hijacked {
-		t.Errorf("Hijack = %v, hijacked %t", err, under.hijacked)
+	if _, _, err := rc.Hijack(); err != nil || !under.hijacked || rec.code != http.StatusSwitchingProtocols {
+		t.Errorf("Hijack = %v, hijacked %t, code %d", err, under.hijacked, rec.code)
+	}
+	// Nothing is written to a hijacked writer.
+	rec.WriteHeader(http.StatusBadGateway)
+	if _, err := rec.Write([]byte("{}")); err != http.ErrHijacked || under.Code == http.StatusBadGateway || rec.code != http.StatusSwitchingProtocols {
+		t.Errorf("after hijack: Write err %v, underlying code %d, recorded %d", err, under.Code, rec.code)
 	}
 }

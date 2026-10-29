@@ -113,7 +113,18 @@ func NewHandler(cfg Config) (http.Handler, error) {
 			// the upstream endpoint.
 			ErrorHandler: func(w http.ResponseWriter, req *http.Request, err error) {
 				ev := eventFrom(req)
-				ev.Outcome, ev.Err = OutcomeUpstreamError, err
+				ev.Err = err
+				switch {
+				case req.Context().Err() != nil:
+					ev.Outcome = OutcomeCanceled
+				case isHijacked(w):
+					// The upgrade failed after the connection was handed over, so there is no
+					// response left to write.
+					ev.Outcome = OutcomeAborted
+					return
+				default:
+					ev.Outcome = OutcomeUpstreamError
+				}
 				writeStatus(w, http.StatusBadGateway, metav1.StatusReasonInternalError,
 					fmt.Sprintf(upstreamFailed, ev.ClusterID))
 			},
@@ -130,8 +141,14 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// The reverse proxy panics with http.ErrAbortHandler when a response fails mid-copy;
 		// the event is recorded before the panic carries on to the server.
 		p := recover()
-		if p != nil {
+		switch {
+		case p == nil:
+		case p == http.ErrAbortHandler && r.Context().Err() != nil:
+			ev.Outcome = OutcomeCanceled
+		case p == http.ErrAbortHandler:
 			ev.Outcome = OutcomeAborted
+		default:
+			ev.Err = fmt.Errorf("panic: %v", p)
 		}
 		ev.StatusCode, ev.Duration = rec.code, time.Since(start)
 		h.audit.Record(r.Context(), *ev)
@@ -191,6 +208,11 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request, ev *AuditEvent) 
 func refuse(w http.ResponseWriter, ev *AuditEvent, perr *PolicyError) {
 	ev.Outcome, ev.Reason = OutcomeRefused, perr.RejectionReason
 	writePolicyError(w, perr)
+}
+
+func isHijacked(w http.ResponseWriter) bool {
+	rec, ok := w.(*statusRecorder)
+	return ok && rec.hijacked
 }
 
 // eventFrom returns the request's audit event, which ServeHTTP always sets before it

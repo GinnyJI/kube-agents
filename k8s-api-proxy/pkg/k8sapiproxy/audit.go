@@ -1,8 +1,10 @@
 package k8sapiproxy
 
 import (
+	"bufio"
 	"context"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 )
@@ -19,13 +21,16 @@ const (
 	OutcomeRefused Outcome = "refused"
 	// OutcomeUpstreamError is a request the upstream transport failed to answer.
 	OutcomeUpstreamError Outcome = "upstream_error"
-	// OutcomeAborted is a response that stopped while it was being copied, because the
-	// caller went away or the upstream failed mid-stream.
+	// OutcomeAborted is a response or upgraded stream that broke off while the caller was
+	// still connected, such as an upstream that failed mid-stream.
 	OutcomeAborted Outcome = "aborted"
+	// OutcomeCanceled is a request the caller gave up on, by closing the connection or
+	// stopping a watch, before the response was complete.
+	OutcomeCanceled Outcome = "canceled"
 )
 
 const (
-	auditMessage = "kube-proxy request"
+	auditMessage = "k8s-api-proxy request"
 
 	auditKeyOutcome     = "outcome"
 	auditKeyStatus      = "status_code"
@@ -49,8 +54,8 @@ const (
 	auditKeyError       = "error"
 )
 
-// AuditEvent describes one request the handler finished. It carries no request or response
-// body and no credential.
+// AuditEvent describes one request the handler finished. The handler puts no request or
+// response body, query or credential in it; Err is the error text as returned.
 type AuditEvent struct {
 	Caller     *CallerIdentity
 	ClusterID  string
@@ -75,8 +80,9 @@ type AuditEvent struct {
 	// Duration runs to the end of the response, so for a watch or an upgraded stream it is
 	// how long the stream stayed open.
 	Duration time.Duration
-	// Err is why authentication or the upstream failed. It can name the upstream endpoint, so
-	// it goes to the operator's log and never to the caller.
+	// Err is why authentication or the upstream failed, or the panic, as the authenticator or
+	// transport returned it. It can name the upstream endpoint or carry the outgoing URL, query
+	// included, so it goes to the operator's log and never to the caller.
 	Err error
 }
 
@@ -91,7 +97,7 @@ type slogAuditSink struct {
 }
 
 // NewSlogAuditSink returns an AuditSink that writes each event as one record to logger:
-// refusals at warn, upstream errors and aborted responses at error, the rest at info.
+// refusals at warn, upstream errors, aborted responses and panics at error, the rest at info.
 func NewSlogAuditSink(logger *slog.Logger) AuditSink {
 	if logger == nil {
 		logger = slog.Default()
@@ -139,42 +145,63 @@ func (s slogAuditSink) Record(ctx context.Context, e AuditEvent) {
 	if e.Err != nil {
 		attrs = append(attrs, slog.String(auditKeyError, e.Err.Error()))
 	}
-	s.logger.LogAttrs(ctx, auditLevel(e.Outcome), auditMessage, attrs...)
+	s.logger.LogAttrs(ctx, auditLevel(e), auditMessage, attrs...)
 }
 
-func auditLevel(o Outcome) slog.Level {
-	switch o {
+func auditLevel(e AuditEvent) slog.Level {
+	switch e.Outcome {
 	case OutcomeUnauthenticated, OutcomeRefused:
 		return slog.LevelWarn
 	case OutcomeUpstreamError, OutcomeAborted:
 		return slog.LevelError
-	default:
+	case OutcomeCanceled:
 		return slog.LevelInfo
 	}
+	// A request that panicked carries the panic in Err.
+	if e.Err != nil {
+		return slog.LevelError
+	}
+	return slog.LevelInfo
 }
 
 // statusRecorder keeps the status the handler or the upstream answered with. Unwrap lets
-// http.ResponseController, which the reverse proxy flushes and hijacks through, reach the
-// underlying writer.
+// http.ResponseController, which the reverse proxy flushes through, reach the underlying
+// writer.
 type statusRecorder struct {
 	http.ResponseWriter
-	code int
+	code     int
+	hijacked bool
 }
 
 func (s *statusRecorder) WriteHeader(code int) {
-	// An interim 1xx, which the reverse proxy relays, is not the answer; 101 is, since the
-	// connection is handed over after it.
-	if s.code == 0 && (code >= http.StatusOK || code == http.StatusSwitchingProtocols) {
+	if s.hijacked {
+		return
+	}
+	// An interim 1xx, which the reverse proxy relays, is not the answer.
+	if s.code == 0 && code >= http.StatusOK {
 		s.code = code
 	}
 	s.ResponseWriter.WriteHeader(code)
 }
 
 func (s *statusRecorder) Write(b []byte) (int, error) {
+	if s.hijacked {
+		return 0, http.ErrHijacked
+	}
 	if s.code == 0 {
 		s.code = http.StatusOK
 	}
 	return s.ResponseWriter.Write(b)
+}
+
+// Hijack records a 101: the reverse proxy hijacks the connection for an upgrade and writes
+// the 101 onto it, never through WriteHeader.
+func (s *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	conn, rw, err := http.NewResponseController(s.ResponseWriter).Hijack()
+	if err == nil {
+		s.hijacked, s.code = true, http.StatusSwitchingProtocols
+	}
+	return conn, rw, err
 }
 
 func (s *statusRecorder) Unwrap() http.ResponseWriter {
