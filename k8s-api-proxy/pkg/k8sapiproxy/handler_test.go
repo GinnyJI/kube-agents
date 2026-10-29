@@ -167,22 +167,25 @@ func TestHandlerRoutes(t *testing.T) {
 func TestHandlerRefusals(t *testing.T) {
 	tests := []struct {
 		name, method, target string
+		policy               Policy
 		wantCode             int
 		wantReason           metav1.StatusReason
 	}{
-		{"invalid path", http.MethodGet, "/api/v1/namespaces/%2e%2e/secrets", http.StatusBadRequest, metav1.StatusReasonBadRequest},
-		{"invalid cluster", http.MethodGet, "/clusters/bad$id/api/v1/pods", http.StatusBadRequest, metav1.StatusReasonBadRequest},
-		{"write without dry run", http.MethodPost, "/api/v1/namespaces/default/configmaps", http.StatusForbidden, metav1.StatusReasonForbidden},
-		{"exec", http.MethodPost, "/api/v1/namespaces/default/pods/p/exec?command=sh", http.StatusForbidden, metav1.StatusReasonForbidden},
-		{"non-discovery path", http.MethodGet, "/metrics", http.StatusForbidden, metav1.StatusReasonForbidden},
-		{"unclassifiable path", http.MethodGet, "/api/v1/watch", http.StatusBadRequest, metav1.StatusReasonBadRequest},
-		{"secret get", http.MethodGet, "/api/v1/namespaces/default/secrets/s", http.StatusForbidden, metav1.StatusReasonForbidden},
-		{"secret list", http.MethodGet, "/api/v1/secrets", http.StatusForbidden, metav1.StatusReasonForbidden},
-		{"secret watch", http.MethodGet, "/api/v1/namespaces/default/secrets?watch=1", http.StatusForbidden, metav1.StatusReasonForbidden},
+		{"invalid path", http.MethodGet, "/api/v1/namespaces/%2e%2e/secrets", Policy{}, http.StatusBadRequest, metav1.StatusReasonBadRequest},
+		{"invalid cluster", http.MethodGet, "/clusters/bad$id/api/v1/pods", Policy{}, http.StatusBadRequest, metav1.StatusReasonBadRequest},
+		{"write without dry run", http.MethodPost, "/api/v1/namespaces/default/configmaps", Policy{}, http.StatusForbidden, metav1.StatusReasonForbidden},
+		{"exec", http.MethodPost, "/api/v1/namespaces/default/pods/p/exec?command=sh", Policy{}, http.StatusForbidden, metav1.StatusReasonForbidden},
+		{"non-discovery path", http.MethodGet, "/metrics", Policy{}, http.StatusForbidden, metav1.StatusReasonForbidden},
+		{"unclassifiable path", http.MethodGet, "/api/v1/watch", Policy{}, http.StatusBadRequest, metav1.StatusReasonBadRequest},
+		{"secret get", http.MethodGet, "/api/v1/namespaces/default/secrets/s", Policy{}, http.StatusForbidden, metav1.StatusReasonForbidden},
+		{"secret list", http.MethodGet, "/api/v1/secrets", Policy{}, http.StatusForbidden, metav1.StatusReasonForbidden},
+		{"secret watch", http.MethodGet, "/api/v1/namespaces/default/secrets?watch=1", Policy{}, http.StatusForbidden, metav1.StatusReasonForbidden},
+		{"secret dry-run delete", http.MethodDelete, "/api/v1/namespaces/default/secrets/s?dryRun=All", Policy{Mode: ModeReadWrite, RedactSecrets: true}, http.StatusForbidden, metav1.StatusReasonForbidden},
+		{"secret dry-run deletecollection", http.MethodDelete, "/api/v1/namespaces/default/secrets?dryRun=All", Policy{Mode: ModeReadWrite, RedactSecrets: true}, http.StatusForbidden, metav1.StatusReasonForbidden},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			h, upstream := newTestHandler(t, Config{})
+			h, upstream := newTestHandler(t, Config{Policy: tc.policy})
 			rec := serve(h, httptest.NewRequest(tc.method, tc.target, nil))
 			if rec.Code != tc.wantCode {
 				t.Fatalf("code = %d, want %d: %s", rec.Code, tc.wantCode, rec.Body.String())

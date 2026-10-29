@@ -9,6 +9,7 @@ import (
 	"net/url"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apiserver/pkg/endpoints/request"
 )
 
@@ -22,6 +23,10 @@ const (
 	// follow need.
 	flushImmediately = -1
 )
+
+// secretValueVerbs are the verbs whose response carries Secret values: the API server returns
+// the deleted Secret, or the deleted list, even for a dry run.
+var secretValueVerbs = readVerbs.Union(sets.New(verbDelete, verbDeleteCollection))
 
 // Config configures NewHandler.
 type Config struct {
@@ -123,8 +128,9 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writePolicyError(w, perr)
 		return
 	}
-	// Responses are not redacted yet, so a Secret read is refused while redaction is asked for.
-	if h.policy.RedactSecrets && isCoreV1Secret(info) && readVerbs.Has(info.Verb) {
+	// Responses are not redacted yet, so a request whose response carries Secret values is
+	// refused while redaction is asked for.
+	if h.policy.RedactSecrets && isCoreV1Secret(info) && secretValueVerbs.Has(info.Verb) {
 		writePolicyError(w, forbidden(ReasonResourceBlocked, fmt.Sprintf(secretReadRefused, info.Verb)))
 		return
 	}

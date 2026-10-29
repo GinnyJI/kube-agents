@@ -18,8 +18,8 @@ credential minting, assigning pods to nodes, and the token and access review API
 redaction on, Secret subresources and Secret `update` and `patch` are refused in every mode,
 since even a dry-run patch can reveal a value. Redaction covers what the Secrets API returns, not
 what a workload prints: in `read-write`, a pod that echoes a Secret exposes it through its log.
-The handler does not redact responses yet, so with redaction on it refuses Secret `get`, `list`
-and `watch` too.
+The handler does not redact responses yet, so with redaction on it also refuses Secret `get`,
+`list`, `watch`, `delete` and `deletecollection`, whose responses carry values even for a dry run.
 
 It is a self-contained Go module, and nothing outside this directory builds it. Run its checks
 from this directory:
