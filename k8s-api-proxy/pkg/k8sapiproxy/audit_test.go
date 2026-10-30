@@ -354,6 +354,34 @@ func TestHandlerAuditsUpgrade(t *testing.T) {
 	}
 }
 
+func TestHandlerAuditsFailedUpgradeWrite(t *testing.T) {
+	sink := &recordingSink{}
+	upstream := transportFunc(func(_ context.Context, _ string, req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusSwitchingProtocols,
+			ProtoMajor: 1,
+			ProtoMinor: 1,
+			Header:     http.Header{"Upgrade": {"SPDY/3.1"}, "Connection": {"Upgrade"}},
+			Body:       upgradedStream{Reader: strings.NewReader(""), Writer: io.Discard},
+			Request:    req,
+		}, nil
+	})
+	h, _ := newTestHandler(t, Config{Audit: sink, Upstream: upstream,
+		Policy: Policy{Mode: ModeReadWrite, AllowUpgradeSubresources: true}})
+
+	// The caller's side is gone, so writing the 101 onto the hijacked connection fails.
+	proxySide, callerSide := net.Pipe()
+	_ = callerSide.Close()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/default/pods/p/exec?command=sh", nil)
+	req.Header.Set("Upgrade", "SPDY/3.1")
+	req.Header.Set("Connection", "Upgrade")
+	h.ServeHTTP(&hijackableRecorder{ResponseRecorder: httptest.NewRecorder(), conn: proxySide}, req)
+
+	if got := sink.only(t); got.Outcome != OutcomeAborted || got.Err == nil {
+		t.Errorf("event = %+v, want aborted with the write error", got)
+	}
+}
+
 type panicAuthenticator struct{}
 
 func (panicAuthenticator) AuthenticateRequest(*http.Request) (*CallerIdentity, error) {

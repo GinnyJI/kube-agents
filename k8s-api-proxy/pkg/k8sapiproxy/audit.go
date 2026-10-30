@@ -21,8 +21,10 @@ const (
 	OutcomeRefused Outcome = "refused"
 	// OutcomeUpstreamError is a request the upstream transport failed to answer.
 	OutcomeUpstreamError Outcome = "upstream_error"
-	// OutcomeAborted is a response or upgraded stream that broke off while the caller was
-	// still connected, such as an upstream that failed mid-stream.
+	// OutcomeAborted is a response that failed mid-copy while the caller was still
+	// connected, such as an upstream that failed mid-stream, or an upgrade whose 101 could not
+	// be written. Once an upgrade's 101 is written, the reverse proxy reports nothing about the
+	// stream, so a session that breaks off later is recorded as forwarded.
 	OutcomeAborted Outcome = "aborted"
 	// OutcomeCanceled is a request the caller gave up on, by closing the connection or
 	// stopping a watch, before the response was complete.
