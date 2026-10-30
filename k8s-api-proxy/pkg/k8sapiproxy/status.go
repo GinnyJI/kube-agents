@@ -25,7 +25,7 @@ func writeStatus(w http.ResponseWriter, code int, reason metav1.StatusReason, me
 	w.Header().Set(headerContentType, contentTypeJSON)
 	w.Header().Set(headerNoSniff, noSniff)
 	w.WriteHeader(code)
-	_, _ = w.Write(body)
+	_, _ = w.Write(body) // #nosec G705 -- a JSON Status served as application/json with nosniff, never HTML
 }
 
 // statusBody returns a failure metav1.Status as JSON, with code clamped to a valid HTTP status.
