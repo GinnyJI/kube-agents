@@ -13,7 +13,7 @@ type CallerIdentity struct {
 }
 
 // CallerAuthenticator identifies the caller of a request, returning an error when it is not
-// an authorized sandbox.
+// an authorized sandbox. The caller gets a fixed 401, never the error's text.
 type CallerAuthenticator interface {
 	AuthenticateRequest(r *http.Request) (*CallerIdentity, error)
 }

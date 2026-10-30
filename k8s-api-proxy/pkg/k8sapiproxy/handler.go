@@ -100,12 +100,10 @@ func NewHandler(cfg Config) (http.Handler, error) {
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// The authenticator's error is not echoed, as the transport's is not: it can describe the
+	// proxy's own authentication setup.
 	if caller, err := h.authenticator.AuthenticateRequest(r); err != nil || caller == nil {
-		msg := authFailedMessage
-		if err != nil {
-			msg += ": " + err.Error()
-		}
-		writeStatus(w, http.StatusUnauthorized, metav1.StatusReasonUnauthorized, msg)
+		writeStatus(w, http.StatusUnauthorized, metav1.StatusReasonUnauthorized, authFailedMessage)
 		return
 	}
 

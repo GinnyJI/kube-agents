@@ -126,8 +126,8 @@ func TestHandlerAuthentication(t *testing.T) {
 			if rec.Code != http.StatusUnauthorized {
 				t.Fatalf("code = %d, want 401", rec.Code)
 			}
-			if s := decodeStatus(t, rec); s.Reason != metav1.StatusReasonUnauthorized {
-				t.Errorf("reason = %q", s.Reason)
+			if s := decodeStatus(t, rec); s.Reason != metav1.StatusReasonUnauthorized || s.Message != authFailedMessage {
+				t.Errorf("Status = %q %q, want the fixed message", s.Reason, s.Message)
 			}
 			if upstream.calls != 0 {
 				t.Error("an unauthenticated request reached the upstream")
