@@ -13,12 +13,12 @@ implements the authenticator yet or serves or deploys the handler.
 `pkg/upstream` sends `in-cluster`, and the proxy's own cluster when it is given that cluster's
 `gke_` ID, to the API server through the pod's service account. Any other `gke_` cluster is reached
 with the proxy's Application Default Credentials: it describes the cluster through the Container
-API, picks the endpoint `gcloud container clusters get-credentials` would (rules 1, 2 and 4 of
-[`private-endpoint-selection.md`](../docs/designs/private-endpoint-selection.md); the private
-endpoint of rule 3 is not chosen yet), and caches it for ten minutes, a failure for ten seconds,
-and drops it on a transport error. An IP endpoint is verified against the cluster's own CA and
-never the system roots, an `http://` endpoint and a redirect are refused, and a `kind-` cluster
-has no upstream.
+API and picks its endpoint by rules 1, 2 and 4 of
+[`private-endpoint-selection.md`](../docs/designs/private-endpoint-selection.md) (the private
+endpoint of rule 3 is not chosen yet). A resolved endpoint is reused for ten minutes and a failed
+resolution for ten seconds; an endpoint that cannot be dialled is described again after ten
+seconds. An IP endpoint is verified against the cluster's own CA and never the system roots, an
+`http://` endpoint and a redirect are refused, and a `kind-` cluster has no upstream.
 
 The policy has three modes. `read-only` permits `get`, `list` and `watch` and the discovery
 paths. `read-only-dry-run`, the default and the mode kube-agents will run, also permits `create`,

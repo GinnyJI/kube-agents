@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -25,9 +26,12 @@ const (
 	cloudPlatformScope     = "https://www.googleapis.com/auth/cloud-platform"
 	defaultEndpointTTL     = 10 * time.Minute
 	// failureTTL bounds how often a cluster that cannot be resolved costs a Container API call.
-	failureTTL        = 10 * time.Second
-	discoveryTimeout  = 15 * time.Second
-	kindClusterPrefix = "kind-"
+	failureTTL          = 10 * time.Second
+	discoveryTimeout    = 15 * time.Second
+	kindClusterPrefix   = "kind-"
+	httpsScheme         = "https"
+	schemeSeparator     = "://"
+	authorizationHeader = "Authorization"
 )
 
 // Config configures a Transport.
@@ -59,6 +63,7 @@ type Transport struct {
 	endpointTTL     time.Duration
 	// dnsCAData, when set, replaces the system roots for a DNS endpoint. Tests only.
 	dnsCAData []byte
+	now       func() time.Time
 
 	mu       sync.Mutex
 	clusters map[string]clusterEntry
@@ -68,10 +73,11 @@ type Transport struct {
 var _ k8sapiproxy.UpstreamTransport = (*Transport)(nil)
 
 type clusterEntry struct {
-	target  *url.URL
-	rt      http.RoundTripper
-	err     error
-	expires time.Time
+	target   *url.URL
+	rt       http.RoundTripper
+	err      error
+	resolved time.Time
+	expires  time.Time
 }
 
 // New returns a Transport. It reads the in-cluster configuration and finds the default Google
@@ -107,6 +113,10 @@ func New(ctx context.Context, cfg Config) (*Transport, error) {
 	if apiURL == "" {
 		apiURL = defaultContainerAPIURL
 	}
+	if u, err := url.Parse(apiURL); err != nil || u.Scheme != httpsScheme || u.Host == "" {
+		// The Container API is sent the proxy's Google token.
+		return nil, errors.New("container API URL must be https")
+	}
 	ttl := cfg.EndpointTTL
 	if ttl <= 0 {
 		ttl = defaultEndpointTTL
@@ -120,6 +130,7 @@ func New(ctx context.Context, cfg Config) (*Transport, error) {
 		containerAPIURL: apiURL,
 		endpointTTL:     ttl,
 		clusters:        make(map[string]clusterEntry),
+		now:             time.Now,
 	}, nil
 }
 
@@ -130,7 +141,7 @@ func (t *Transport) RoundTripCluster(ctx context.Context, clusterID string, req 
 	var target *url.URL
 	var rt http.RoundTripper
 	switch {
-	case clusterID == k8sapiproxy.InClusterID || clusterID == t.hostClusterID:
+	case clusterID == k8sapiproxy.InClusterID || t.hostClusterID != "" && clusterID == t.hostClusterID:
 		target, rt = t.inClusterTarget, t.inClusterRT
 	case strings.HasPrefix(clusterID, kindClusterPrefix):
 		return nil, fmt.Errorf("cluster %q: kind clusters have no upstream", clusterID)
@@ -145,10 +156,14 @@ func (t *Transport) RoundTripCluster(ctx context.Context, clusterID string, req 
 	out := req.Clone(ctx)
 	out.URL.Scheme, out.URL.Host = target.Scheme, target.Host
 	out.Host = ""
+	// client-go's bearer token round tripper keeps an Authorization header it finds, so a
+	// caller's credential must not reach it even if a caller of this method left one.
+	out.Header.Del(authorizationHeader)
 	resp, err := rt.RoundTrip(out)
 	if err != nil {
 		if ctx.Err() == nil && target != t.inClusterTarget {
-			// The endpoint may have moved, as when a cluster is recreated; resolve it again.
+			// The endpoint may have moved, as when a cluster is recreated; resolve it again,
+			// though no sooner than a failed resolution would be retried.
 			t.forget(clusterID, rt)
 		}
 		return nil, err
@@ -173,9 +188,7 @@ func (t *Transport) cluster(ctx context.Context, clusterID string) (clusterEntry
 		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), discoveryTimeout)
 		defer cancel()
 		entry := t.resolveCluster(rctx, clusterID)
-		t.mu.Lock()
-		t.clusters[clusterID] = entry
-		t.mu.Unlock()
+		t.store(clusterID, entry)
 		return entry, nil
 	})
 	select {
@@ -191,20 +204,40 @@ func (t *Transport) cached(clusterID string) (clusterEntry, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	entry, ok := t.clusters[clusterID]
-	return entry, ok && time.Now().Before(entry.expires)
+	return entry, ok && t.now().Before(entry.expires)
 }
 
+// store caches entry and drops expired entries, so cluster IDs a caller makes up do not
+// accumulate.
+func (t *Transport) store(clusterID string, entry clusterEntry) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	now := t.now()
+	for id, e := range t.clusters {
+		if !now.Before(e.expires) {
+			delete(t.clusters, id)
+		}
+	}
+	t.clusters[clusterID] = entry
+}
+
+// forget shortens the entry holding rt to expire failureTTL after it was resolved, so an
+// endpoint that cannot be dialled costs a Container API call at most that often.
 func (t *Transport) forget(clusterID string, rt http.RoundTripper) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if entry, ok := t.clusters[clusterID]; ok && entry.rt == rt {
-		delete(t.clusters, clusterID)
+		if retry := entry.resolved.Add(failureTTL); retry.Before(entry.expires) {
+			entry.expires = retry
+			t.clusters[clusterID] = entry
+		}
 	}
 }
 
 func (t *Transport) resolveCluster(ctx context.Context, clusterID string) clusterEntry {
+	now := t.now()
 	fail := func(err error) clusterEntry {
-		return clusterEntry{err: fmt.Errorf("cluster %q: %w", clusterID, err), expires: time.Now().Add(failureTTL)}
+		return clusterEntry{err: fmt.Errorf("cluster %q: %w", clusterID, err), resolved: now, expires: now.Add(failureTTL)}
 	}
 	coords, err := parseGKEClusterID(clusterID)
 	if err != nil {
@@ -232,20 +265,23 @@ func (t *Transport) resolveCluster(ctx context.Context, clusterID string) cluste
 	if err != nil {
 		return fail(err)
 	}
-	return clusterEntry{target: target, rt: rt, expires: time.Now().Add(t.endpointTTL)}
+	return clusterEntry{target: target, rt: rt, resolved: now, expires: now.Add(t.endpointTTL)}
 }
 
-// targetURL parses an API server address, adding https:// to a bare host, and refuses any
-// other scheme and any path.
+// targetURL parses an API server address, adding https:// to a bare host or IP address, and
+// refuses any other scheme and any path.
 func targetURL(host string) (*url.URL, error) {
-	if !strings.Contains(host, "://") {
-		host = "https://" + host
+	if ip := net.ParseIP(host); ip != nil && ip.To4() == nil {
+		host = "[" + host + "]"
+	}
+	if !strings.Contains(host, schemeSeparator) {
+		host = httpsScheme + schemeSeparator + host
 	}
 	u, err := url.Parse(host)
 	if err != nil {
 		return nil, err
 	}
-	if u.Scheme != "https" || u.Host == "" || strings.Trim(u.Path, "/") != "" || u.User != nil {
+	if u.Scheme != httpsScheme || u.Host == "" || strings.Trim(u.Path, "/") != "" || u.User != nil {
 		return nil, errors.New("API server address must be https://host[:port]")
 	}
 	return &url.URL{Scheme: u.Scheme, Host: u.Host}, nil

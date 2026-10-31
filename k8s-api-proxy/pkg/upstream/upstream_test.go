@@ -99,7 +99,7 @@ type fakeContainerAPI struct {
 func newFakeContainerAPI(t *testing.T, status int, desc func() clusterDescription) *fakeContainerAPI {
 	t.Helper()
 	f := &fakeContainerAPI{}
-	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	f.Server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.calls.Add(1)
 		if r.Header.Get("Authorization") != "Bearer "+testToken {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
@@ -149,7 +149,30 @@ func newTestTransport(t *testing.T, inCluster, gke *fakeAPIServer, api *fakeCont
 	if gke != nil {
 		tr.dnsCAData = gke.caPEM()
 	}
+	tr.discovery.Transport = &oauth2.Transport{Source: tr.tokens, Base: api.Client().Transport}
 	return tr
+}
+
+// fakeClock is a settable Transport.now.
+type fakeClock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func useFakeClock(tr *Transport) *fakeClock {
+	c := &fakeClock{t: time.Now()}
+	tr.now = func() time.Time {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		return c.t
+	}
+	return c
+}
+
+func (c *fakeClock) advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.t = c.t.Add(d)
 }
 
 func roundTrip(t *testing.T, tr *Transport, clusterID, path string) (*http.Response, error) {
@@ -296,19 +319,198 @@ func TestRoundTripRediscoversAfterTransportError(t *testing.T) {
 	gke := newFakeAPIServer(t, nil)
 	api := newFakeContainerAPI(t, http.StatusOK, ipEndpoint(gke))
 	tr := newTestTransport(t, inCluster, nil, api, nil)
+	clock := useFakeClock(tr)
 
 	if _, err := roundTrip(t, tr, testClusterID, "/api"); err != nil {
 		t.Fatalf("RoundTripCluster: %v", err)
 	}
 	gke.Close()
-	if _, err := roundTrip(t, tr, testClusterID, "/api"); err == nil {
-		t.Fatal("RoundTripCluster succeeded against a closed API server")
+	for range 3 {
+		if _, err := roundTrip(t, tr, testClusterID, "/api"); err == nil {
+			t.Fatal("RoundTripCluster succeeded against a closed API server")
+		}
 	}
+	if n := api.calls.Load(); n != 1 {
+		t.Errorf("Container API calls = %d, want 1: a failing endpoint is not described again within the failure TTL", n)
+	}
+	clock.advance(failureTTL)
 	if _, err := roundTrip(t, tr, testClusterID, "/api"); err == nil {
 		t.Fatal("RoundTripCluster succeeded against a closed API server")
 	}
 	if n := api.calls.Load(); n != 2 {
-		t.Errorf("Container API calls = %d, want 2: a transport error drops the cached endpoint", n)
+		t.Errorf("Container API calls = %d, want 2: a transport error shortens the cached endpoint to the failure TTL", n)
+	}
+}
+
+func TestRoundTripCacheExpiry(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		ttl    time.Duration
+	}{
+		{"endpoint", http.StatusOK, defaultEndpointTTL},
+		{"failure", http.StatusForbidden, failureTTL},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			inCluster := newFakeAPIServer(t, nil)
+			gke := newFakeAPIServer(t, nil)
+			api := newFakeContainerAPI(t, tc.status, ipEndpoint(gke))
+			tr := newTestTransport(t, inCluster, nil, api, nil)
+			clock := useFakeClock(tr)
+
+			_, _ = roundTrip(t, tr, testClusterID, "/api")
+			clock.advance(tc.ttl - time.Second)
+			_, _ = roundTrip(t, tr, testClusterID, "/api")
+			if n := api.calls.Load(); n != 1 {
+				t.Errorf("Container API calls before the TTL = %d, want 1", n)
+			}
+			clock.advance(time.Second)
+			_, _ = roundTrip(t, tr, testClusterID, "/api")
+			if n := api.calls.Load(); n != 2 {
+				t.Errorf("Container API calls after the TTL = %d, want 2", n)
+			}
+		})
+	}
+}
+
+func TestRoundTripPrunesExpiredEntries(t *testing.T) {
+	inCluster := newFakeAPIServer(t, nil)
+	api := newFakeContainerAPI(t, http.StatusOK, nil)
+	tr := newTestTransport(t, inCluster, nil, api, nil)
+	clock := useFakeClock(tr)
+
+	for _, id := range []string{"gke_proj_us-central1_a", "gke_proj_us-central1_b"} {
+		_, _ = roundTrip(t, tr, id, "/api")
+	}
+	clock.advance(failureTTL)
+	_, _ = roundTrip(t, tr, "gke_proj_us-central1_c", "/api")
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	if len(tr.clusters) != 1 {
+		t.Errorf("cached clusters = %d, want 1: expired entries are dropped", len(tr.clusters))
+	}
+}
+
+func TestRoundTripCancelledCallerDoesNotFailOthers(t *testing.T) {
+	inCluster := newFakeAPIServer(t, nil)
+	gke := newFakeAPIServer(t, nil)
+	started, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	describe := ipEndpoint(gke)
+	api := newFakeContainerAPI(t, http.StatusOK, func() clusterDescription {
+		once.Do(func() { close(started) })
+		<-release
+		return describe()
+	})
+	tr := newTestTransport(t, inCluster, nil, api, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	first := make(chan error, 1)
+	go func() {
+		req := httptest.NewRequest(http.MethodGet, "/api", nil)
+		req.RequestURI = ""
+		_, err := tr.RoundTripCluster(ctx, testClusterID, req)
+		first <- err
+	}()
+	<-started
+	cancel()
+	if err := <-first; err == nil {
+		t.Fatal("the cancelled caller succeeded")
+	}
+	close(release)
+	if resp, err := roundTrip(t, tr, testClusterID, "/api"); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("RoundTripCluster after another caller gave up = %v, %v", resp, err)
+	}
+	if n := api.calls.Load(); n != 1 {
+		t.Errorf("Container API calls = %d, want 1: the shared resolution completed", n)
+	}
+}
+
+func TestRoundTripPassesNotModified(t *testing.T) {
+	inCluster := newFakeAPIServer(t, nil)
+	gke := newFakeAPIServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotModified)
+	})
+	api := newFakeContainerAPI(t, http.StatusOK, ipEndpoint(gke))
+	tr := newTestTransport(t, inCluster, nil, api, nil)
+
+	if resp, err := roundTrip(t, tr, testClusterID, "/api"); err != nil || resp.StatusCode != http.StatusNotModified {
+		t.Fatalf("RoundTripCluster = %v, %v; want a 304", resp, err)
+	}
+}
+
+func TestRoundTripDropsCallerAuthorization(t *testing.T) {
+	inCluster := newFakeAPIServer(t, nil)
+	api := newFakeContainerAPI(t, http.StatusOK, nil)
+	tr := newTestTransport(t, inCluster, nil, api, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api", nil)
+	req.RequestURI = ""
+	req.Header.Set("Authorization", "Bearer caller-token")
+	resp, err := tr.RoundTripCluster(context.Background(), k8sapiproxy.InClusterID, req)
+	if err != nil {
+		t.Fatalf("RoundTripCluster: %v", err)
+	}
+	_ = resp.Body.Close()
+	if got := inCluster.requests(); len(got) != 1 || got[0] != "Bearer "+testSAToken+" /api" {
+		t.Errorf("in-cluster API server saw %q, want the service account token", got)
+	}
+}
+
+func TestRoundTripEmptyClusterIDIsNotInCluster(t *testing.T) {
+	inCluster := newFakeAPIServer(t, nil)
+	api := newFakeContainerAPI(t, http.StatusOK, nil)
+	tr := newTestTransport(t, inCluster, nil, api, nil)
+
+	if _, err := roundTrip(t, tr, "", "/api"); err == nil {
+		t.Fatal("RoundTripCluster accepted an empty cluster ID")
+	}
+	if got := inCluster.requests(); len(got) != 0 {
+		t.Errorf("in-cluster API server saw %q", got)
+	}
+}
+
+func TestNewRejectsConfig(t *testing.T) {
+	inCluster := newFakeAPIServer(t, nil)
+	base := Config{
+		InCluster:   &rest.Config{Host: inCluster.URL},
+		TokenSource: oauth2.StaticTokenSource(&oauth2.Token{AccessToken: testToken}),
+	}
+	for name, mutate := range map[string]func(*Config){
+		"invalid host cluster ID":    func(c *Config) { c.HostClusterID = "kind-dev" },
+		"plain HTTP container API":   func(c *Config) { c.ContainerAPIURL = "http://container.example" },
+		"plain HTTP in-cluster host": func(c *Config) { c.InCluster = &rest.Config{Host: "http://10.0.0.1"} },
+	} {
+		cfg := base
+		mutate(&cfg)
+		if _, err := New(context.Background(), cfg); err == nil {
+			t.Errorf("%s: New succeeded", name)
+		}
+	}
+}
+
+func TestTargetURL(t *testing.T) {
+	for _, tc := range []struct {
+		in, want string
+	}{
+		{"1.2.3.4", "https://1.2.3.4"},
+		{"2001:db8::1", "https://[2001:db8::1]"},
+		{"gke-x.goog:443", "https://gke-x.goog:443"},
+		{"https://gke-x.goog", "https://gke-x.goog"},
+		{"http://gke-x.goog", ""},
+		{"https://gke-x.goog/path", ""},
+		{"https://user@gke-x.goog", ""},
+	} {
+		got, err := targetURL(tc.in)
+		if tc.want == "" {
+			if err == nil {
+				t.Errorf("targetURL(%q) = %v, want an error", tc.in, got)
+			}
+			continue
+		}
+		if err != nil || got.String() != tc.want {
+			t.Errorf("targetURL(%q) = %v, %v; want %s", tc.in, got, err, tc.want)
+		}
 	}
 }
 

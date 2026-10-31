@@ -16,6 +16,7 @@ import (
 const (
 	gkeClusterPrefix = "gke_"
 	gkeIDParts       = 3
+	gkeIDSeparator   = "_"
 	// maxClusterResponse bounds a Container API cluster description.
 	maxClusterResponse = 4 << 20
 	clusterPathFormat  = "%s/v1/projects/%s/locations/%s/clusters/%s"
@@ -35,7 +36,7 @@ type gkeCluster struct {
 // parseGKEClusterID splits a kubeconfig context name of the form gke_PROJECT_LOCATION_NAME.
 func parseGKEClusterID(clusterID string) (gkeCluster, error) {
 	rest, ok := strings.CutPrefix(clusterID, gkeClusterPrefix)
-	parts := strings.Split(rest, "_")
+	parts := strings.Split(rest, gkeIDSeparator)
 	if !ok || len(parts) != gkeIDParts || !gkeProject.MatchString(parts[0]) ||
 		!gkeSegment.MatchString(parts[1]) || !gkeSegment.MatchString(parts[2]) {
 		return gkeCluster{}, fmt.Errorf("%q is not a gke_PROJECT_LOCATION_NAME cluster ID", clusterID)
