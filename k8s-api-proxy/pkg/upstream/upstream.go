@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/net/http/httpguts"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"golang.org/x/sync/singleflight"
@@ -32,6 +33,9 @@ const (
 	httpsScheme         = "https"
 	schemeSeparator     = "://"
 	authorizationHeader = "Authorization"
+	connectionHeader    = "Connection"
+	upgradeToken        = "upgrade"
+	http1Proto          = "http/1.1"
 )
 
 // Config configures a Transport.
@@ -56,7 +60,7 @@ type Config struct {
 type Transport struct {
 	hostClusterID   string
 	inClusterTarget *url.URL
-	inClusterRT     http.RoundTripper
+	inClusterRT     *roundTrippers
 	tokens          oauth2.TokenSource
 	discovery       *http.Client
 	containerAPIURL string
@@ -74,7 +78,7 @@ var _ k8sapiproxy.UpstreamTransport = (*Transport)(nil)
 
 type clusterEntry struct {
 	target   *url.URL
-	rt       http.RoundTripper
+	rt       *roundTrippers
 	err      error
 	resolved time.Time
 	expires  time.Time
@@ -94,7 +98,7 @@ func New(ctx context.Context, cfg Config) (*Transport, error) {
 	if err != nil {
 		return nil, fmt.Errorf("in-cluster host: %w", err)
 	}
-	inClusterRT, err := rest.TransportFor(inCluster)
+	inClusterRT, err := newRoundTrippers(inCluster)
 	if err != nil {
 		return nil, fmt.Errorf("in-cluster transport: %w", err)
 	}
@@ -139,7 +143,7 @@ func New(ctx context.Context, cfg Config) (*Transport, error) {
 // gke_ ID. A kind- context has no upstream here.
 func (t *Transport) RoundTripCluster(ctx context.Context, clusterID string, req *http.Request) (*http.Response, error) {
 	var target *url.URL
-	var rt http.RoundTripper
+	var rt *roundTrippers
 	switch {
 	case clusterID == k8sapiproxy.InClusterID || t.hostClusterID != "" && clusterID == t.hostClusterID:
 		target, rt = t.inClusterTarget, t.inClusterRT
@@ -159,7 +163,7 @@ func (t *Transport) RoundTripCluster(ctx context.Context, clusterID string, req 
 	// client-go's bearer token round tripper keeps an Authorization header it finds, so a
 	// caller's credential must not reach it even if a caller of this method left one.
 	out.Header.Del(authorizationHeader)
-	resp, err := rt.RoundTrip(out)
+	resp, err := rt.forRequest(out).RoundTrip(out)
 	if err != nil {
 		if ctx.Err() == nil && target != t.inClusterTarget {
 			// The endpoint may have moved, as when a cluster is recreated; resolve it again,
@@ -223,7 +227,7 @@ func (t *Transport) store(clusterID string, entry clusterEntry) {
 
 // forget shortens the entry holding rt to expire failureTTL after it was resolved, so an
 // endpoint that cannot be dialled costs a Container API call at most that often.
-func (t *Transport) forget(clusterID string, rt http.RoundTripper) {
+func (t *Transport) forget(clusterID string, rt *roundTrippers) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if entry, ok := t.clusters[clusterID]; ok && entry.rt == rt {
@@ -235,8 +239,10 @@ func (t *Transport) forget(clusterID string, rt http.RoundTripper) {
 }
 
 func (t *Transport) resolveCluster(ctx context.Context, clusterID string) clusterEntry {
-	now := t.now()
+	// Entries are stamped when the resolution ends, so a describe slower than failureTTL is
+	// still cached.
 	fail := func(err error) clusterEntry {
+		now := t.now()
 		return clusterEntry{err: fmt.Errorf("cluster %q: %w", clusterID, err), resolved: now, expires: now.Add(failureTTL)}
 	}
 	coords, err := parseGKEClusterID(clusterID)
@@ -255,7 +261,7 @@ func (t *Transport) resolveCluster(ctx context.Context, clusterID string) cluste
 	if ep.dns {
 		caData = t.dnsCAData
 	}
-	rt, err := rest.TransportFor(&rest.Config{
+	rt, err := newRoundTrippers(&rest.Config{
 		Host:            target.String(),
 		TLSClientConfig: rest.TLSClientConfig{CAData: caData},
 		WrapTransport: func(base http.RoundTripper) http.RoundTripper {
@@ -265,7 +271,37 @@ func (t *Transport) resolveCluster(ctx context.Context, clusterID string) cluste
 	if err != nil {
 		return fail(err)
 	}
+	now := t.now()
 	return clusterEntry{target: target, rt: rt, resolved: now, expires: now.Add(t.endpointTTL)}
+}
+
+// roundTrippers holds a cluster's transport and an HTTP/1.1-only one for upgrades. client-go
+// offers HTTP/2, which the API server accepts, and net/http keeps an upgrade other than
+// WebSocket on that connection, where the HTTP/2 transport refuses an Upgrade header: a SPDY
+// exec, attach or port-forward would fail.
+type roundTrippers struct {
+	rt, upgrade http.RoundTripper
+}
+
+func newRoundTrippers(cfg *rest.Config) (*roundTrippers, error) {
+	rt, err := rest.TransportFor(cfg)
+	if err != nil {
+		return nil, err
+	}
+	h1 := rest.CopyConfig(cfg)
+	h1.NextProtos = []string{http1Proto}
+	upgrade, err := rest.TransportFor(h1)
+	if err != nil {
+		return nil, err
+	}
+	return &roundTrippers{rt: rt, upgrade: upgrade}, nil
+}
+
+func (r *roundTrippers) forRequest(req *http.Request) http.RoundTripper {
+	if httpguts.HeaderValuesContainsToken(req.Header[connectionHeader], upgradeToken) {
+		return r.upgrade
+	}
+	return r.rt
 }
 
 // targetURL parses an API server address, adding https:// to a bare host or IP address, and

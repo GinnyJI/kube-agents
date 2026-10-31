@@ -32,19 +32,22 @@ const (
 	testSAToken   = "in-cluster-token"
 )
 
-// fakeAPIServer is a TLS API server that records each request's Authorization header and URL.
+// fakeAPIServer is a TLS API server that, like kube-apiserver, offers HTTP/2, and records each
+// request's Authorization header, URL and protocol.
 type fakeAPIServer struct {
 	*httptest.Server
-	mu   sync.Mutex
-	seen []string
+	mu     sync.Mutex
+	seen   []string
+	protos []string
 }
 
 func newFakeAPIServer(t *testing.T, handler http.HandlerFunc) *fakeAPIServer {
 	t.Helper()
 	s := &fakeAPIServer{}
-	s.Server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	s.Server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		s.seen = append(s.seen, r.Header.Get("Authorization")+" "+r.URL.RequestURI())
+		s.protos = append(s.protos, r.Proto)
 		s.mu.Unlock()
 		if handler != nil {
 			handler(w, r)
@@ -52,6 +55,8 @@ func newFakeAPIServer(t *testing.T, handler http.HandlerFunc) *fakeAPIServer {
 		}
 		_, _ = io.WriteString(w, "ok")
 	}))
+	s.EnableHTTP2 = true
+	s.StartTLS()
 	t.Cleanup(s.Close)
 	return s
 }
@@ -373,6 +378,27 @@ func TestRoundTripCacheExpiry(t *testing.T) {
 	}
 }
 
+func TestRoundTripCachesSlowDiscoveryFailure(t *testing.T) {
+	inCluster := newFakeAPIServer(t, nil)
+	var clock *fakeClock
+	api := newFakeContainerAPI(t, http.StatusOK, func() clusterDescription {
+		// The describe outlasts failureTTL, then returns a cluster with no endpoint.
+		clock.advance(2 * failureTTL)
+		return clusterDescription{}
+	})
+	tr := newTestTransport(t, inCluster, nil, api, nil)
+	clock = useFakeClock(tr)
+
+	for range 2 {
+		if _, err := roundTrip(t, tr, testClusterID, "/api"); err == nil {
+			t.Fatal("RoundTripCluster succeeded for a cluster with no endpoint")
+		}
+	}
+	if n := api.calls.Load(); n != 1 {
+		t.Errorf("Container API calls = %d, want 1: the failure TTL runs from when the describe ended", n)
+	}
+}
+
 func TestRoundTripPrunesExpiredEntries(t *testing.T) {
 	inCluster := newFakeAPIServer(t, nil)
 	api := newFakeContainerAPI(t, http.StatusOK, nil)
@@ -561,45 +587,70 @@ func TestRoundTripRejectsUntrustedCertificate(t *testing.T) {
 	}
 }
 
-func TestRoundTripUpgradeBodyIsReadWriteCloser(t *testing.T) {
-	inCluster := newFakeAPIServer(t, nil)
-	gke := newFakeAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
-		conn, rw, err := http.NewResponseController(w).Hijack()
-		if err != nil {
-			return
-		}
-		defer func() { _ = conn.Close() }()
-		_, _ = rw.WriteString("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: SPDY/3.1\r\n\r\n")
-		_ = rw.Flush()
-		line, _ := rw.ReadString('\n')
-		_, _ = rw.WriteString("echo " + line)
-		_ = rw.Flush()
-	})
-	api := newFakeContainerAPI(t, http.StatusOK, ipEndpoint(gke))
-	tr := newTestTransport(t, inCluster, nil, api, nil)
+// An upgrade must reach the API server over HTTP/1.1 even with an HTTP/2 connection to it
+// pooled, and come back with a body the reverse proxy can splice.
+func TestRoundTripUpgradeOverHTTP1(t *testing.T) {
+	for _, clusterID := range []string{k8sapiproxy.InClusterID, testClusterID} {
+		t.Run(clusterID, func(t *testing.T) {
+			upgradeServer := func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Upgrade") == "" {
+					_, _ = io.WriteString(w, "ok")
+					return
+				}
+				conn, rw, err := http.NewResponseController(w).Hijack()
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusHTTPVersionNotSupported)
+					return
+				}
+				defer func() { _ = conn.Close() }()
+				_, _ = rw.WriteString("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: SPDY/3.1\r\n\r\n")
+				_ = rw.Flush()
+				line, _ := rw.ReadString('\n')
+				_, _ = rw.WriteString("echo " + line)
+				_ = rw.Flush()
+			}
+			inCluster := newFakeAPIServer(t, upgradeServer)
+			gke := newFakeAPIServer(t, upgradeServer)
+			api := newFakeContainerAPI(t, http.StatusOK, ipEndpoint(gke))
+			tr := newTestTransport(t, inCluster, nil, api, nil)
+			server := gke
+			if clusterID == k8sapiproxy.InClusterID {
+				server = inCluster
+			}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/default/pods/p/exec", nil)
-	req.RequestURI = ""
-	req.URL.Scheme, req.URL.Host, req.Host = "", "", ""
-	req.Header.Set("Connection", "Upgrade")
-	req.Header.Set("Upgrade", "SPDY/3.1")
-	resp, err := tr.RoundTripCluster(context.Background(), testClusterID, req)
-	if err != nil {
-		t.Fatalf("RoundTripCluster: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusSwitchingProtocols {
-		t.Fatalf("status = %d, want 101", resp.StatusCode)
-	}
-	stream, ok := resp.Body.(io.ReadWriteCloser)
-	if !ok {
-		t.Fatalf("101 body is %T, not an io.ReadWriteCloser", resp.Body)
-	}
-	if _, err := io.WriteString(stream, "hello\n"); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	got := make([]byte, len("echo hello\n"))
-	if _, err := io.ReadFull(stream, got); err != nil || string(got) != "echo hello\n" {
-		t.Errorf("read %q, %v", got, err)
+			if _, err := roundTrip(t, tr, clusterID, "/api"); err != nil {
+				t.Fatalf("RoundTripCluster: %v", err)
+			}
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/namespaces/default/pods/p/exec", nil)
+			req.RequestURI = ""
+			req.URL.Scheme, req.URL.Host, req.Host = "", "", ""
+			req.Header.Set("Connection", "Upgrade")
+			req.Header.Set("Upgrade", "SPDY/3.1")
+			resp, err := tr.RoundTripCluster(context.Background(), clusterID, req)
+			if err != nil {
+				t.Fatalf("RoundTripCluster(upgrade): %v", err)
+			}
+			defer func() { _ = resp.Body.Close() }()
+			server.mu.Lock()
+			protos := append([]string(nil), server.protos...)
+			server.mu.Unlock()
+			if len(protos) != 2 || protos[0] != "HTTP/2.0" || protos[1] != "HTTP/1.1" {
+				t.Errorf("protocols = %q, want HTTP/2.0 for the request and HTTP/1.1 for the upgrade", protos)
+			}
+			if resp.StatusCode != http.StatusSwitchingProtocols {
+				t.Fatalf("status = %d, want 101", resp.StatusCode)
+			}
+			stream, ok := resp.Body.(io.ReadWriteCloser)
+			if !ok {
+				t.Fatalf("101 body is %T, not an io.ReadWriteCloser", resp.Body)
+			}
+			if _, err := io.WriteString(stream, "hello\n"); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+			got := make([]byte, len("echo hello\n"))
+			if _, err := io.ReadFull(stream, got); err != nil || string(got) != "echo hello\n" {
+				t.Errorf("read %q, %v", got, err)
+			}
+		})
 	}
 }
