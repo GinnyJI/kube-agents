@@ -122,10 +122,10 @@ func TestHandlerAuditEvents(t *testing.T) {
 				Outcome: OutcomeRefused, Reason: ReasonSubresourceBlocked, StatusCode: http.StatusForbidden},
 		},
 		{
-			name: "secret refusal", method: http.MethodGet, target: "/api/v1/namespaces/default/secrets/s",
-			want: AuditEvent{ClusterID: InClusterID, Path: "/api/v1/namespaces/default/secrets/s", Verb: "get",
-				APIVersion: "v1", Resource: "secrets", Namespace: "default", Name: "s",
-				Outcome: OutcomeRefused, Reason: ReasonResourceBlocked, StatusCode: http.StatusForbidden},
+			name: "secret refusal", method: http.MethodPatch, target: "/api/v1/namespaces/default/secrets/s?dryRun=All",
+			want: AuditEvent{ClusterID: InClusterID, Path: "/api/v1/namespaces/default/secrets/s", Verb: "patch",
+				APIVersion: "v1", Resource: "secrets", Namespace: "default", Name: "s", DryRun: true,
+				Outcome: OutcomeRefused, Reason: ReasonSecretWriteBlocked, StatusCode: http.StatusForbidden},
 		},
 		{
 			name: "upstream error", method: http.MethodGet, target: "/api/v1/pods",
