@@ -425,7 +425,12 @@ func TestRoundTripCancelledCallerDoesNotFailOthers(t *testing.T) {
 	describe := ipEndpoint(gke)
 	api := newFakeContainerAPI(t, http.StatusOK, func() clusterDescription {
 		once.Do(func() { close(started) })
-		<-release
+		// Giving up with the test lets the server's Close return if an assertion below fails
+		// before release is closed.
+		select {
+		case <-release:
+		case <-t.Context().Done():
+		}
 		return describe()
 	})
 	tr := newTestTransport(t, inCluster, nil, api, nil)
@@ -438,7 +443,11 @@ func TestRoundTripCancelledCallerDoesNotFailOthers(t *testing.T) {
 		_, err := tr.RoundTripCluster(ctx, testClusterID, req)
 		first <- err
 	}()
-	<-started
+	select {
+	case <-started:
+	case err := <-first:
+		t.Fatalf("RoundTripCluster returned before the describe started: %v", err)
+	}
 	cancel()
 	if err := <-first; err == nil {
 		t.Fatal("the cancelled caller succeeded")
