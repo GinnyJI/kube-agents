@@ -154,7 +154,7 @@ func newTestTransport(t *testing.T, inCluster, gke *fakeAPIServer, api *fakeCont
 	if gke != nil {
 		tr.dnsCAData = gke.caPEM()
 	}
-	tr.discovery.Transport = &oauth2.Transport{Source: tr.tokens, Base: api.Client().Transport}
+	tr.discovery.Transport.(*oauth2.Transport).Base = api.Client().Transport
 	return tr
 }
 
