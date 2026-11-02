@@ -21,6 +21,14 @@ puts no body, query or credential in it, but an authentication or transport erro
 returned. The caller never sees that error, because it can name the upstream. The default sink
 writes each event as one `slog` record, and the reverse proxy's own errors go to the same logger.
 
+`Metrics` (`metrics.go`) is a second sink, combined with the log sink through `MultiAuditSink`. It
+counts requests by verb, resource, subresource, outcome, rejection reason and status class, times
+them (leaving out watches and upgraded streams, whose duration is how long the stream stayed
+open), and its `InFlight` middleware counts the requests being served. Verbs, resources and
+subresources come from the caller's path, so a value outside a fixed list is counted as `other`.
+Its `Handler` serves them in the Prometheus format under `kubeagents_k8s_api_proxy_`, with the Go
+and process collectors; nothing serves it yet.
+
 The policy has three modes. `read-only` permits `get`, `list` and `watch` and the discovery
 paths. `read-only-dry-run`, the default and the mode kube-agents will run, also permits `create`,
 `update` and `patch` carrying `dryRun=All`. `read-write` permits writes. Every mode refuses
